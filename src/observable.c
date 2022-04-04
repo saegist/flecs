@@ -39,48 +39,59 @@ void notify_subset(
     ecs_ids_t *ids)
 {
     ecs_id_t pair = ecs_pair(EcsWildcard, entity);
-    ecs_table_cache_iter_t idt;
-    ecs_id_record_t *idr = flecs_table_iter(world, pair, &idt);
-    if (!idr) {
+    ecs_id_record_t *widr = flecs_get_id_record(world, pair);
+    if (!widr) {
         return;
     }
 
-    const ecs_table_record_t *tr;
-    while ((tr = flecs_table_cache_next(&idt, ecs_table_record_t))) {
-        ecs_table_t *table = tr->hdr.table;
-        ecs_id_t id = ecs_vector_get(table->type, ecs_id_t, tr->column)[0];
-        ecs_entity_t rel = ECS_PAIR_FIRST(id);
+    ecs_force_aperiodic(world);
 
-        if (ecs_is_valid(world, rel) && !ecs_has_id(world, rel, EcsAcyclic)) {
-            /* Only notify for acyclic relations */
+    /* Find acyclic relationships for entity */
+    ecs_id_record_t *idr = widr;
+    while ((idr = idr->second.next)) {
+        if (!ecs_table_cache_count(&idr->cache)) {
             continue;
         }
 
-        int32_t e, entity_count = ecs_table_count(table);
-        it->table = table;
-        it->type = table->type;
-        it->other_table = NULL;
-        it->offset = 0;
-        it->count = entity_count;
+        ecs_table_cache_iter_t idt;
+        if (flecs_table_cache_iter(&idr->cache, &idt)) {
+            ecs_table_record_t *first = (ecs_table_record_t*)idt.next;
+            ecs_entity_t rel = ECS_PAIR_FIRST(first->id);
 
-        /* Treat as new event as this could trigger observers again for
-         * different tables. */
-        world->event_id ++;
+            if (ecs_is_valid(world, rel) && !ecs_has_id(world, rel, EcsAcyclic)) {
+                continue;
+            }
 
-        flecs_set_triggers_notify(it, observable, ids, event,
-            ecs_pair(rel, EcsWildcard));
+            const ecs_table_record_t *tr;
+            while ((tr = flecs_table_cache_next(&idt, ecs_table_record_t))) {
+                ecs_table_t *table = tr->hdr.table;
+                int32_t e, entity_count = ecs_table_count(table);
+                it->table = table;
+                it->type = table->type;
+                it->other_table = NULL;
+                it->offset = 0;
+                it->count = entity_count;
 
-        ecs_entity_t *entities = ecs_vector_first(
-            table->storage.entities, ecs_entity_t);
-        ecs_record_t **records = ecs_vector_first(
-            table->storage.record_ptrs, ecs_record_t*);
+                /* Treat as new event as this could trigger observers again for
+                 * different tables. */
+                world->event_id ++;
 
-        for (e = 0; e < entity_count; e ++) {
-            uint32_t flags = ECS_RECORD_TO_ROW_FLAGS(records[e]->row);
-            if (flags & ECS_FLAG_OBSERVED_ACYCLIC) {
-                /* Only notify for entities that are used in pairs with
-                 * acyclic relations */
-                notify_subset(world, it, observable, entities[e], event, ids);
+                flecs_set_triggers_notify(it, observable, ids, event,
+                    ecs_pair(rel, EcsWildcard));
+
+                ecs_entity_t *entities = ecs_vector_first(
+                    table->storage.entities, ecs_entity_t);
+                ecs_record_t **records = ecs_vector_first(
+                    table->storage.record_ptrs, ecs_record_t*);
+
+                for (e = 0; e < entity_count; e ++) {
+                    uint32_t flags = ECS_RECORD_TO_ROW_FLAGS(records[e]->row);
+                    if (flags & ECS_FLAG_OBSERVED_ACYCLIC) {
+                        /* Only notify for entities that are used in pairs with
+                        * acyclic relations */
+                        notify_subset(world, it, observable, entities[e], event, ids);
+                    }
+                }
             }
         }
     }
