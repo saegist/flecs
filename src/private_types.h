@@ -376,14 +376,11 @@ struct ecs_query_t {
 
 /** All triggers for a specific (component) id */
 typedef struct ecs_event_id_record_t {
-    /* Triggers for Self */
+    /* Self triggers */
     ecs_map_t triggers; /* map<trigger_id, trigger_t> */
 
-    /* Triggers for SuperSet, SubSet */
-    ecs_map_t set_triggers; /* map<trigger_id, trigger_t> */
-
-    /* Triggers for Self with non-This subject */
-    ecs_map_t entity_triggers; /* map<trigger_id, trigger_t> */
+    /* Superset triggers */
+    ecs_map_t superset; /* map<relation_id, map<trigger_id, trigger_t>> */
 
     /* Number of active triggers for (component) id */
     int32_t trigger_count;
@@ -392,6 +389,9 @@ typedef struct ecs_event_id_record_t {
 /** All triggers for a specific event */
 typedef struct ecs_event_record_t {
     ecs_map_t event_ids;     /* map<id, ecs_event_id_record_t> */
+
+    /* Number of wildcard triggers for event */
+    int32_t wildcard_count;
 } ecs_event_record_t;
 
 /** Types for deferred operations */

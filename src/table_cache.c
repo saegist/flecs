@@ -215,7 +215,7 @@ void ecs_table_cache_fini_delete_all(
 }
 
 bool flecs_table_cache_iter(
-    ecs_table_cache_t *cache,
+    const ecs_table_cache_t *cache,
     ecs_table_cache_iter_t *out)
 {
     ecs_assert(cache != NULL, ECS_INTERNAL_ERROR, NULL);
@@ -226,7 +226,7 @@ bool flecs_table_cache_iter(
 }
 
 bool flecs_table_cache_empty_iter(
-    ecs_table_cache_t *cache,
+    const ecs_table_cache_t *cache,
     ecs_table_cache_iter_t *out)
 {
     ecs_assert(cache != NULL, ECS_INTERNAL_ERROR, NULL);

@@ -177,11 +177,11 @@ ecs_id_record_t* flecs_empty_table_iter(
     ecs_table_cache_iter_t *out);
 
 bool flecs_table_cache_iter(
-    ecs_table_cache_t *cache,
+    const ecs_table_cache_t *cache,
     ecs_table_cache_iter_t *out);
 
 bool flecs_table_cache_empty_iter(
-    ecs_table_cache_t *cache,
+    const ecs_table_cache_t *cache,
     ecs_table_cache_iter_t *out);
 
 ecs_table_cache_hdr_t* _flecs_table_cache_next(
@@ -204,12 +204,6 @@ void flecs_name_index_erase(
     ecs_hashmap_t *map,
     ecs_entity_t entity,
     uint64_t hash);
-
-void flecs_triggers_notify(
-    ecs_iter_t *it,
-    ecs_observable_t *observable,
-    ecs_ids_t *ids,
-    ecs_entity_t event);
 
 void flecs_set_triggers_notify(
     ecs_iter_t *it,

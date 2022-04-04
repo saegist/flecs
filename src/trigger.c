@@ -84,13 +84,40 @@ void inc_trigger_count(
         });
 
         /* Remove admin for id for event */
-        if (!ecs_map_is_initialized(&idt->triggers) && 
-            !ecs_map_is_initialized(&idt->set_triggers)) 
-        {
+        if (!ecs_map_is_initialized(&idt->triggers)) {
             unregister_event_trigger(evt, id);
             ecs_os_free(idt);
         }
     }
+}
+
+static
+ecs_map_t* ensure_triggers_for_relation(
+    ecs_event_id_record_t *idt,
+    ecs_entity_t relation)
+{
+    if (!ecs_map_is_initialized(&idt->superset)) {
+        ecs_map_init(&idt->superset, ecs_map_t, 1);
+    }
+
+    return ecs_map_ensure(&idt->superset, ecs_map_t, relation);
+}
+
+static
+ecs_map_t* get_triggers_for_relation(
+    const ecs_event_id_record_t *idt,
+    ecs_entity_t relation)
+{
+    if (!ecs_map_is_initialized(&idt->superset)) {
+        return NULL;
+    }
+
+    ecs_map_t *triggers = ecs_map_get(&idt->superset, ecs_map_t, relation);
+    if (!triggers) {
+        return NULL;
+    }
+
+    return triggers;
 }
 
 static
@@ -99,7 +126,7 @@ void register_trigger_for_id(
     ecs_observable_t *observable,
     ecs_trigger_t *trigger,
     ecs_id_t id,
-    size_t triggers_offset)
+    ecs_entity_t relation)
 {
     ecs_sparse_t *events = observable->events;
     ecs_assert(events != NULL, ECS_INTERNAL_ERROR, NULL);
@@ -114,6 +141,10 @@ void register_trigger_for_id(
             events, ecs_event_record_t, event);
         ecs_assert(evt != NULL, ECS_INTERNAL_ERROR, NULL);
 
+        if (ecs_id_is_wildcard(term_id)) {
+            evt->wildcard_count ++;
+        }
+
         if (!ecs_map_is_initialized(&evt->event_ids)) {
             ecs_map_init(&evt->event_ids, ecs_event_id_record_t*, 1);
         }
@@ -123,7 +154,13 @@ void register_trigger_for_id(
             &evt->event_ids, id);
         ecs_assert(idt != NULL, ECS_INTERNAL_ERROR, NULL);
 
-        ecs_map_t *triggers = ECS_OFFSET(idt, triggers_offset);
+        ecs_map_t *triggers;
+        if (!relation) {
+            triggers = &idt->triggers;
+        } else {
+            triggers = ensure_triggers_for_relation(idt, relation);
+        }
+
         if (!ecs_map_is_initialized(triggers)) {
             ecs_map_init(triggers, ecs_trigger_t*, 1);
         }
@@ -133,6 +170,17 @@ void register_trigger_for_id(
         inc_trigger_count(world, event, evt, term_id, 1);
         if (term_id != id) {
             inc_trigger_count(world, event, evt, id, 1);
+        }
+
+        if (ecs_should_log_3()) {
+            char *idstr = ecs_id_str(world, id);
+            if (!relation) {
+                ecs_dbg_3("trigger registered for id %s", idstr);
+            } else {
+                ecs_dbg_3("trigger registered for id %s, "
+                    "relation %s", idstr, ecs_get_name(world, relation));
+            }
+            ecs_os_free(idstr);
         }
     }
 }
@@ -144,34 +192,30 @@ void register_trigger(
     ecs_trigger_t *trigger)
 {
     ecs_term_t *term = &trigger->term;
+    ecs_id_t id = term->id;
+    ecs_flags32_t mask = term->subj.set.mask;
 
-    if (term->subj.set.mask & EcsSelf) {
+    if (mask & EcsSelf) {
         if (term->subj.entity == EcsThis) {
-            register_trigger_for_id(world, observable, trigger, term->id, 
-                offsetof(ecs_event_id_record_t, triggers));
-        } else {
-            register_trigger_for_id(world, observable, trigger, term->id,
-                offsetof(ecs_event_id_record_t, entity_triggers));
+            register_trigger_for_id(world, observable, trigger, id, 0);
         }
     }
 
-    if (trigger->term.subj.set.mask & EcsSuperSet) {
-        ecs_id_t pair = ecs_pair(term->subj.set.relation, EcsWildcard);
-        register_trigger_for_id(world, observable, trigger, pair,
-            offsetof(ecs_event_id_record_t, set_triggers));
-    }
-
-    if (ECS_HAS_ROLE(term->id, SWITCH)) {
-        ecs_entity_t sw = term->id & ECS_COMPONENT_MASK;
+    if (ECS_HAS_ROLE(id, SWITCH)) {
+        ecs_entity_t sw = id & ECS_COMPONENT_MASK;
         ecs_id_t sw_case = ecs_case(sw, EcsWildcard);
-        register_trigger_for_id(world, observable, trigger, sw_case, 
-            offsetof(ecs_event_id_record_t, triggers));
+        register_trigger_for_id(world, observable, trigger, sw_case, 0);
     }
 
-    if (ECS_HAS_ROLE(term->id, CASE)) {
-        ecs_entity_t sw = ECS_PAIR_FIRST(term->id);
-        register_trigger_for_id(world, observable, trigger, ECS_SWITCH | sw, 
-            offsetof(ecs_event_id_record_t, triggers));
+    if (ECS_HAS_ROLE(id, CASE)) {
+        ecs_entity_t sw = ECS_PAIR_FIRST(id);
+        register_trigger_for_id(world, observable, trigger, ECS_SWITCH | sw, 0);
+    }
+
+    if (mask & EcsSuperSet) {
+        ecs_entity_t relation = term->subj.set.relation;
+        ecs_assert(relation != 0, ECS_INTERNAL_ERROR, NULL);
+        register_trigger_for_id(world, observable, trigger, id, relation);
     }
 }
 
@@ -181,7 +225,7 @@ void unregister_trigger_for_id(
     ecs_observable_t *observable,
     ecs_trigger_t *trigger,
     ecs_id_t id,
-    size_t triggers_offset)
+    ecs_entity_t relation)
 {
     ecs_sparse_t *events = observable->events;
     ecs_assert(events != NULL, ECS_INTERNAL_ERROR, NULL);
@@ -196,15 +240,24 @@ void unregister_trigger_for_id(
             events, ecs_event_record_t, event);
         ecs_assert(evt != NULL, ECS_INTERNAL_ERROR, NULL);
 
+        if (ecs_id_is_wildcard(term_id)) {
+            evt->wildcard_count --;
+        }
+
         /* Get triggers for (component) id */
         ecs_event_id_record_t *idt = ecs_map_get_ptr(
             &evt->event_ids, ecs_event_id_record_t*, id);
         ecs_assert(idt != NULL, ECS_INTERNAL_ERROR, NULL);
+        
+        ecs_map_t *triggers;
+        if (!relation) {
+            triggers = &idt->triggers;
+        } else {
+            triggers = get_triggers_for_relation(idt, relation);
+        }
 
-        ecs_map_t *id_triggers = ECS_OFFSET(idt, triggers_offset);
-
-        if (ecs_map_remove(id_triggers, trigger->id) == 0) {
-            ecs_map_fini(id_triggers);
+        if (ecs_map_remove(triggers, trigger->id) == 0) {
+            ecs_map_fini(triggers);
         }
 
         inc_trigger_count(world, event, evt, term_id, -1);
@@ -213,7 +266,6 @@ void unregister_trigger_for_id(
             /* Id is different from term_id in case of a set trigger. If they're
              * the same, inc_trigger_count could already have done cleanup */
             if (!ecs_map_is_initialized(&idt->triggers) && 
-                !ecs_map_is_initialized(&idt->set_triggers) && 
                 !idt->trigger_count) 
             {
                 unregister_event_trigger(evt, id);
@@ -231,34 +283,30 @@ void unregister_trigger(
     ecs_trigger_t *trigger)
 {    
     ecs_term_t *term = &trigger->term;
+    ecs_id_t id = term->id;
+    ecs_flags32_t mask = term->subj.set.mask;
 
     if (term->subj.set.mask & EcsSelf) {
         if (term->subj.entity == EcsThis) {
-            unregister_trigger_for_id(world, observable, trigger, term->id, 
-                offsetof(ecs_event_id_record_t, triggers));
-        } else {
-            unregister_trigger_for_id(world, observable, trigger, term->id,
-                offsetof(ecs_event_id_record_t, entity_triggers));
+            unregister_trigger_for_id(world, observable, trigger, term->id, 0);
         }
-    }
-
-    if (term->subj.set.mask & EcsSuperSet) {
-        ecs_id_t pair = ecs_pair(term->subj.set.relation, EcsWildcard);
-        unregister_trigger_for_id(world, observable, trigger, pair,
-            offsetof(ecs_event_id_record_t, set_triggers));
     }
 
     if (ECS_HAS_ROLE(term->id, SWITCH)) {
         ecs_entity_t sw = term->id & ECS_COMPONENT_MASK;
         ecs_id_t sw_case = ecs_case(sw, EcsWildcard);
-        unregister_trigger_for_id(world, observable, trigger, sw_case, 
-            offsetof(ecs_event_id_record_t, triggers));
+        unregister_trigger_for_id(world, observable, trigger, sw_case, 0);
     }
 
     if (ECS_HAS_ROLE(term->id, CASE)) {
         ecs_entity_t sw = ECS_PAIR_FIRST(term->id);
-        unregister_trigger_for_id(world, observable, trigger, ECS_SWITCH | sw, 
-            offsetof(ecs_event_id_record_t, triggers));
+        unregister_trigger_for_id(world, observable, trigger, ECS_SWITCH | sw, 0);
+    }
+
+    if (mask & EcsSuperSet) {
+        ecs_entity_t relation = term->subj.set.relation;
+        ecs_assert(relation != 0, ECS_INTERNAL_ERROR, NULL);
+        unregister_trigger_for_id(world, observable, trigger, id, relation);
     }
 }
 
@@ -388,7 +436,7 @@ bool ignore_trigger(
 }
 
 static
-void notify_self_triggers(
+void notify_triggers(
     ecs_world_t *world,
     ecs_iter_t *it,
     const ecs_map_t *triggers)
@@ -412,225 +460,6 @@ void notify_self_triggers(
         it->term_index = t->term.index;
         it->terms = &t->term;
         t->callback(it);
-    }
-}
-
-static
-void notify_entity_triggers(
-    ecs_world_t *world,
-    ecs_iter_t *it,
-    const ecs_map_t *triggers)
-{
-    ecs_assert(triggers != NULL, ECS_INTERNAL_ERROR, NULL);
-
-    if (ECS_BIT_IS_SET(it->flags, EcsIterTableOnly)) {
-        return;
-    }
-
-    ecs_map_iter_t mit = ecs_map_iter(triggers);
-    ecs_trigger_t *t;
-    int32_t offset = it->offset, count = it->count;
-    ecs_entity_t *entities = it->entities;
-    
-    ecs_entity_t dummy = 0;
-    it->entities = &dummy;
-
-    while ((t = ecs_map_next_ptr(&mit, ecs_trigger_t*, NULL))) {
-        if (ignore_trigger(world, t, it->table)) {
-            continue;
-        }
-
-        int32_t i, entity_count = it->count;
-        for (i = 0; i < entity_count; i ++) {
-            if (entities[i] != t->term.subj.entity) {
-                continue;
-            }
-
-            ECS_BIT_COND(it->flags, EcsIterIsFilter, 
-                t->term.inout == EcsInOutFilter);
-            it->system = t->entity;
-            it->self = t->self;
-            it->ctx = t->ctx;
-            it->binding_ctx = t->binding_ctx;
-            it->term_index = t->term.index;
-            it->terms = &t->term;
-            it->offset = i;
-            it->count = 1;
-            it->subjects[0] = entities[i];
-
-            t->callback(it);
-        }
-    }
-
-    it->offset = offset;
-    it->count = count;
-    it->entities = entities;
-    it->subjects[0] = 0;
-}
-
-static
-void notify_set_base_triggers(
-    ecs_world_t *world,
-    ecs_iter_t *it,
-    const ecs_map_t *triggers)
-{
-    ecs_assert(triggers != NULL, ECS_INTERNAL_ERROR, NULL);
-
-    ecs_entity_t event_id = it->event_id;
-    ecs_entity_t rel = ECS_PAIR_FIRST(event_id);
-    ecs_entity_t obj = ecs_pair_second(world, event_id);
-    ecs_assert(obj != 0, ECS_INTERNAL_ERROR, NULL);
-    ecs_record_t *obj_record = ecs_eis_get(world, obj);
-    if (!obj_record) {
-        return;
-    }
-
-    ecs_table_t *obj_table = obj_record->table;
-    if (!obj_table) {
-        return;
-    }
-
-    ecs_map_iter_t mit = ecs_map_iter(triggers);
-    ecs_trigger_t *t;
-    while ((t = ecs_map_next_ptr(&mit, ecs_trigger_t*, NULL))) {
-        if (ignore_trigger(world, t, it->table)) {
-            continue;
-        }
-
-        ecs_term_t *term = &t->term;
-        ecs_id_t id = term->id;
-        int32_t column = ecs_search_relation(world, obj_table, 0, id, rel, 
-            0, 0, it->subjects, it->ids, 0, 0);
-        
-        bool result = column != -1;
-        if (term->oper == EcsNot) {
-            result = !result;
-        }
-        if (!result) {
-            continue;
-        }
-
-        if (!term->subj.set.min_depth && flecs_get_table_record(
-            world, it->table, id) != NULL) 
-        {
-            continue;
-        }
-
-        if (!ECS_BIT_IS_SET(it->flags, EcsIterTableOnly)) {
-            if (!it->subjects[0]) {
-                it->subjects[0] = obj;
-            }
-
-            /* Populate pointer from object */
-            int32_t s_column = ecs_table_type_to_storage_index(
-                obj_table, column);
-            if (s_column != -1) {
-                ecs_column_t *c = &obj_table->storage.columns[s_column];
-                int32_t row = ECS_RECORD_TO_ROW(obj_record->row);
-                ecs_type_info_t *ti = &obj_table->type_info[s_column];
-                void *ptr = ecs_vector_get_t(c->data, ti->size, ti->alignment, row);
-                it->ptrs[0] = ptr;
-                it->sizes[0] = ti->size;
-            }
-        }
-
-        ECS_BIT_COND(it->flags, EcsIterIsFilter, 
-            t->term.inout == EcsInOutFilter);
-        it->event_id = t->term.id;
-        it->system = t->entity;
-        it->self = t->self;
-        it->ctx = t->ctx;
-        it->binding_ctx = t->binding_ctx;
-        it->term_index = t->term.index;
-        it->terms = &t->term;
-        
-        t->callback(it);
-    }
-}
-
-static
-void notify_set_triggers(
-    ecs_world_t *world,
-    ecs_iter_t *it,
-    const ecs_map_t *triggers)
-{
-    ecs_assert(triggers != NULL, ECS_INTERNAL_ERROR, NULL);
-    ecs_assert(it->count != 0, ECS_INTERNAL_ERROR, NULL);
-
-    if (ECS_BIT_IS_SET(it->flags, EcsIterTableOnly)) {
-        return;
-    }
-
-    ecs_map_iter_t mit = ecs_map_iter(triggers);
-    ecs_trigger_t *t;
-    while ((t = ecs_map_next_ptr(&mit, ecs_trigger_t*, NULL))) {
-        if (!ecs_id_match(it->event_id, t->term.id)) {
-            continue;
-        }
-
-        if (ignore_trigger(world, t, it->table)) {
-            continue;
-        }
-
-        ecs_entity_t subj = it->entities[0];
-        int32_t i, count = it->count;
-        ecs_entity_t term_subj = t->term.subj.entity;
-
-        /* If trigger is for a specific entity, make sure it is in the table
-         * being triggered for */
-        if (term_subj != EcsThis) {
-            for (i = 0; i < count; i ++) {
-                if (it->entities[i] == term_subj) {
-                    break;
-                }
-            }
-
-            if (i == count) {
-                continue;
-            }
-
-            /* If the entity matches, trigger for no other entities */
-            it->entities[0] = 0;
-            it->count = 1;
-        }
-
-        if (flecs_term_match_table(world, &t->term, it->table, it->type, 
-            it->ids, it->columns, it->subjects, NULL, true, it->flags))
-        {
-            if (!it->subjects[0]) {
-                /* Do not match owned components */
-                continue;
-            }
-
-            ECS_BIT_COND(it->flags, EcsIterIsFilter, 
-                t->term.inout == EcsInOutFilter);
-            it->system = t->entity;
-            it->self = t->self;
-            it->ctx = t->ctx;
-            it->binding_ctx = t->binding_ctx;
-            it->term_index = t->term.index;
-            it->terms = &t->term;
-
-            /* Triggers for supersets can be instanced */
-            bool instanced = t->instanced;
-            bool is_filter = ECS_BIT_IS_SET(it->flags, EcsIterIsFilter);
-            if (it->count == 1 || instanced || is_filter || !it->sizes[0]) {
-                ECS_BIT_COND(it->flags, EcsIterIsInstanced, instanced);
-                t->callback(it);
-                ECS_BIT_CLEAR(it->flags, EcsIterIsInstanced);
-            } else {
-                ecs_entity_t *entities = it->entities;
-                it->count = 1;
-                for (i = 0; i < count; i ++) {
-                    it->entities = &entities[i];
-                    t->callback(it);
-                }
-                it->entities = entities;
-            }
-        }
-
-        it->entities[0] = subj;
-        it->count = count;            
     }
 }
 
@@ -649,30 +478,7 @@ void notify_triggers_for_id(
 
     if (ecs_map_is_initialized(&idt->triggers)) {
         init_iter(it, iter_set);
-        notify_self_triggers(world, it, &idt->triggers);
-    }
-    if (ecs_map_is_initialized(&idt->entity_triggers)) {
-        init_iter(it, iter_set);
-        notify_entity_triggers(world, it, &idt->entity_triggers);
-    }
-    if (ecs_map_is_initialized(&idt->set_triggers)) {
-        init_iter(it, iter_set);
-        notify_set_base_triggers(world, it, &idt->set_triggers);
-    }
-}
-
-static
-void notify_set_triggers_for_id(
-    ecs_world_t *world,
-    const ecs_map_t *evt,
-    ecs_iter_t *it,
-    bool *iter_set,
-    ecs_id_t set_id)
-{
-    const ecs_event_id_record_t *idt = get_triggers_for_id(evt, set_id);
-    if (idt && ecs_map_is_initialized(&idt->set_triggers)) {
-        init_iter(it, iter_set);
-        notify_set_triggers(world, it, &idt->set_triggers);
+        notify_triggers(world, it, &idt->triggers);
     }
 }
 
@@ -763,42 +569,237 @@ void flecs_triggers_notify(
     }
 }
 
-void flecs_set_triggers_notify(
+static
+void propagate_emit(
+    ecs_world_t *world,
     ecs_iter_t *it,
-    ecs_observable_t *observable,
-    ecs_ids_t *ids,
-    ecs_entity_t event,
-    ecs_id_t set_id)
-{
-    ecs_assert(ids != NULL && ids->count != 0, ECS_INTERNAL_ERROR, NULL);
-    ecs_assert(ids->array != NULL, ECS_INTERNAL_ERROR, NULL);
-    ecs_entity_t events[2] = {event, EcsWildcard};
-    int32_t e, i, ids_count = ids->count;
-    ecs_id_t *ids_array = ids->array;
-    ecs_world_t *world = it->real_world;
+    const ecs_event_id_record_t *eidr,
+    ecs_entity_t entity,
+    const ecs_id_record_t *id_idr,
+    ecs_entity_t relation);
 
+static
+void propagate_emit_id_record(
+    ecs_world_t *world,
+    ecs_iter_t *it,
+    const ecs_id_record_t *idr,
+    const ecs_event_id_record_t *eidr,
+    ecs_entity_t entity,
+    const ecs_id_record_t *id_idr,
+    ecs_entity_t relation)
+{
+    if (!ecs_table_cache_count(&idr->cache)) {
+        return;
+    }
+
+    ecs_table_cache_iter_t idt;
+    if (flecs_table_cache_iter(&idr->cache, &idt)) {
+        ecs_table_record_t *first = (ecs_table_record_t*)idt.next;
+        ecs_entity_t rel = ECS_PAIR_FIRST(first->id);
+
+        if (ecs_is_valid(world, rel) && !ecs_has_id(world, rel, EcsAcyclic)) {
+            return;
+        }
+
+        ecs_map_t *triggers = get_triggers_for_relation(eidr, rel);
+        if (!triggers && (rel != EcsIsA)) {
+            return;
+        }
+
+        const ecs_table_record_t *tr;
+        while ((tr = flecs_table_cache_next(&idt, ecs_table_record_t))) {
+            ecs_table_t *table = tr->hdr.table;
+            if (id_idr && ecs_table_cache_get(&id_idr->cache, table) != NULL) {
+                /* Propagation stops for tables that own the id/component */
+                continue;
+            }
+
+            ecs_entity_t *entities = ecs_vector_first(
+                table->storage.entities, ecs_entity_t);
+            ecs_record_t **records = ecs_vector_first(
+                table->storage.record_ptrs, ecs_record_t*);
+
+            int32_t ent, entity_count = ecs_table_count(table);
+            it->table = table;
+            it->type = table->type;
+            it->other_table = NULL;
+            it->offset = 0;
+            it->count = entity_count;
+            it->entities = entities;
+
+            if (triggers) {
+                /* Treat as new event as this could trigger observers again for
+                * different tables. */
+                world->event_id ++;
+                notify_triggers(world, it, triggers);
+            }
+
+            for (ent = 0; ent < entity_count; ent ++) {
+                ecs_record_t *r = records[ent];
+                uint32_t flags = ECS_RECORD_TO_ROW_FLAGS(r->row);
+                if (flags & ECS_FLAG_OBSERVED_ACYCLIC) {
+                    if (rel == EcsIsA) {
+                        rel = 0;
+                    }
+                    propagate_emit(world, it, eidr, entities[ent], id_idr, rel);
+                }
+            }
+        }
+    }
+}
+
+static
+void propagate_emit(
+    ecs_world_t *world,
+    ecs_iter_t *it,
+    const ecs_event_id_record_t *eidr,
+    ecs_entity_t entity,
+    const ecs_id_record_t *id_idr,
+    ecs_entity_t relation)
+{
+    ecs_force_aperiodic(world);
+
+    ecs_log_push();
+
+    if (!relation) {
+        /* If no relation is provided, iterate all relations for entity */
+        ecs_id_t pair = ecs_pair(EcsWildcard, entity);
+        ecs_id_record_t *widr = flecs_get_id_record(world, pair);
+        if (!widr) {
+            ecs_log_pop();
+            return;
+        }
+
+        ecs_id_record_t *idr = widr;
+        while ((idr = idr->second.next)) {
+            propagate_emit_id_record(world, it, idr, eidr, entity, id_idr, relation);
+        }
+    } else {
+        ecs_id_t pair = ecs_pair(relation, entity);
+        ecs_id_record_t *idr = flecs_get_id_record(world, pair);
+        if (idr) {
+            propagate_emit_id_record(world, it, idr, eidr, entity, id_idr, relation);
+        }
+    }
+
+    ecs_log_pop();
+}
+
+void flecs_emit(
+    ecs_world_t *world,
+    ecs_world_t *stage,
+    ecs_event_desc_t *desc)
+{
+    ecs_poly_assert(world, ecs_world_t);
+    ecs_check(desc != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->event != 0, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->event != EcsWildcard, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->ids != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->ids->count != 0, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->table != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->observable != NULL, ECS_INVALID_PARAMETER, NULL);
+
+    ecs_ids_t *ids = desc->ids;
+    ecs_entity_t event = desc->event;
+    ecs_table_t *table = desc->table;
+    int32_t row = desc->offset;
+    int32_t i, ent, count = desc->count;
+
+    if (!count) {
+        count = ecs_table_count(table) - row;
+    }
+
+    ecs_iter_t it = {
+        .world = stage,
+        .real_world = world,
+        .table = table,
+        .type = table->type,
+        .entities = ecs_vector_get(table->storage.entities, ecs_entity_t, row),
+        .term_count = 1,
+        .other_table = desc->other_table,
+        .offset = row,
+        .count = count,
+        .param = (void*)desc->param,
+        .flags = desc->table_event ? EcsIterTableOnly : 0
+    };
+
+    flecs_iter_init(&it, flecs_iter_cache_all);
+
+    world->event_id ++;
+
+    ecs_observable_t *observable = ecs_get_observable(desc->observable);
+    ecs_check(observable != NULL, ECS_INVALID_PARAMETER, NULL);
+
+    ecs_entity_t events[2] = {event, EcsWildcard};
+    int32_t e;
+
+    /* Iterate events (event + Wildcard) */
     for (e = 0; e < 2; e ++) {
-        event = events[e];
+        ecs_entity_t event = events[e];
         const ecs_map_t *evt = get_triggers_for_event(observable, event);
         if (!evt) {
             continue;
         }
 
-        it->event = event;
+        it.event = event;
 
-        for (i = 0; i < ids_count; i ++) {
-            ecs_id_t id = ids_array[i];
-            bool iter_set = false;
+        /* Iterate ids for event */
+        int32_t id_count = ids->count;
+        ecs_id_t *id_array = ids->array;
+        for (i = 0; i < id_count; i ++) {
+            ecs_id_t id = it.event_id = id_array[i];
 
-            it->event_id = id;
+            const ecs_event_id_record_t *eidr = get_triggers_for_id(evt, id);
+            if (!eidr) {
+                continue;
+            }
 
-            notify_set_triggers_for_id(world, evt, it, &iter_set, set_id);
+            notify_triggers(world, &it, &eidr->triggers);
 
-            if (iter_set) {
-                ecs_iter_fini(it);
+            if (count && !desc->table_event) {
+                /* Prefetch id record for id, so we can quickly 
+                 * eliminate tables that own the id vs. receive it
+                 * through a relationship */
+                ecs_id_record_t *id_idr = flecs_get_id_record(world, id);
+
+                /* If id has DontInherit, don't propagate */
+                if (id_idr && (id_idr->flags & ECS_ID_DONT_INHERIT)) {
+                    continue;
+                }
+
+                ecs_entity_t *entities = ecs_vector_get(
+                    table->storage.entities, ecs_entity_t, row);
+                ecs_record_t **rptrs = ecs_vector_get(
+                    table->storage.record_ptrs, ecs_record_t*, row);
+
+                /* Propagate event to entities */
+                for (ent = 0; ent < count; ent ++) {
+                    ecs_record_t *r = rptrs[ent];
+                    if (!r) {
+                        continue;
+                    }
+
+                    uint32_t flags = ECS_RECORD_TO_ROW_FLAGS(r->row);
+                    if (flags & ECS_FLAG_OBSERVED_ACYCLIC) {
+                        ecs_entity_t src = entities[ent];
+                        it.subjects[0] = src;
+                        propagate_emit(world, &it, eidr, src, id_idr, 0);
+                    }
+                }
             }
         }
     }
+    
+error:
+    return;
+}
+
+void ecs_emit(
+    ecs_world_t *stage,
+    ecs_event_desc_t *desc)
+{
+    ecs_world_t *world = (ecs_world_t*)ecs_get_world(stage);
+    flecs_emit(world, stage, desc);
 }
 
 ecs_entity_t ecs_trigger_init(
@@ -837,6 +838,10 @@ ecs_entity_t ecs_trigger_init(
         ecs_check(entity != 0, ECS_INVALID_PARAMETER, NULL);
         name = ecs_get_fullpath(world, entity);
 
+        if (name) {
+            ecs_trace("#[green]trigger#[reset] %s created", name);
+        }
+
         ecs_term_t term;
         if (expr) {
     #ifdef FLECS_PARSER
@@ -867,6 +872,8 @@ ecs_entity_t ecs_trigger_init(
             ecs_term_fini(&term);
             goto error;
         }
+
+        ecs_log_push();
 
         trigger = flecs_sparse_add(world->triggers, ecs_trigger_t);
         trigger->id = flecs_sparse_last_id(world->triggers);
@@ -904,14 +911,11 @@ ecs_entity_t ecs_trigger_init(
 
         ecs_term_fini(&term);
 
-        if (desc->entity.name) {
-            ecs_trace("#[green]trigger#[reset] %s created", 
-                ecs_get_name(world, entity));
-        }
-
         if (desc->yield_existing) {
             trigger_yield_existing(world, trigger);
         }
+
+        ecs_log_pop();
     } else {
         ecs_assert(comp->trigger != NULL, ECS_INTERNAL_ERROR, NULL);
 
@@ -977,4 +981,32 @@ void flecs_trigger_fini(
     }
 
     flecs_sparse_remove(world->triggers, trigger->id);
+}
+
+void flecs_observable_init(
+    ecs_observable_t *observable)
+{
+    observable->events = ecs_sparse_new(ecs_event_record_t);
+}
+
+void flecs_observable_fini(
+    ecs_observable_t *observable)
+{
+    ecs_sparse_t *triggers = observable->events;
+    int32_t i, count = flecs_sparse_count(triggers);
+
+    for (i = 0; i < count; i ++) {
+        ecs_event_record_t *et = 
+            ecs_sparse_get_dense(triggers, ecs_event_record_t, i);
+        ecs_assert(et != NULL, ECS_INTERNAL_ERROR, NULL);
+
+        ecs_map_iter_t it = ecs_map_iter(&et->event_ids);
+        ecs_event_id_record_t *idt;
+        while ((idt = ecs_map_next(&it, ecs_event_id_record_t, NULL))) {
+            ecs_map_fini(&idt->triggers);
+        }
+        ecs_map_fini(&et->event_ids);
+    }
+
+    flecs_sparse_free(observable->events);
 }
