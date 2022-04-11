@@ -384,6 +384,9 @@ typedef struct ecs_event_id_record_t {
 
     /* Number of active triggers for (component) id */
     int32_t trigger_count;
+
+    /* Reference to id record */
+    ecs_id_record_t *idr;
 } ecs_event_id_record_t;
 
 /** All triggers for a specific event */

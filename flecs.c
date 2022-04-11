@@ -656,6 +656,9 @@ typedef struct ecs_event_id_record_t {
 
     /* Number of active triggers for (component) id */
     int32_t trigger_count;
+
+    /* Reference to id record */
+    ecs_id_record_t *idr;
 } ecs_event_id_record_t;
 
 /** All triggers for a specific event */
@@ -45765,13 +45768,16 @@ void unregister_event_trigger(
 
 static
 ecs_event_id_record_t* ensure_event_id_record(
+    ecs_world_t *world,
     ecs_map_t *map,
     ecs_id_t id)
 {
     ecs_event_id_record_t **idt = ecs_map_ensure(
         map, ecs_event_id_record_t*, id);
     if (!idt[0]) {
-        idt[0] = ecs_os_calloc_t(ecs_event_id_record_t);
+        ecs_event_id_record_t *ptr = ecs_os_calloc_t(ecs_event_id_record_t);
+        ptr->idr = flecs_ensure_id_record(world, id);
+        idt[0] = ptr;
     }
 
     return idt[0];
@@ -45785,7 +45791,8 @@ void inc_trigger_count(
     ecs_id_t id,
     int32_t value)
 {
-    ecs_event_id_record_t *idt = ensure_event_id_record(&evt->event_ids, id);
+    ecs_event_id_record_t *idt = ensure_event_id_record
+        (world, &evt->event_ids, id);
     ecs_assert(idt != NULL, ECS_INTERNAL_ERROR, NULL);
     
     int32_t result = idt->trigger_count += value;
@@ -45871,7 +45878,7 @@ void register_trigger_for_id(
 
         /* Get triggers for (component) id for event */
         ecs_event_id_record_t *idt = ensure_event_id_record(
-            &evt->event_ids, id);
+            world, &evt->event_ids, id);
         ecs_assert(idt != NULL, ECS_INTERNAL_ERROR, NULL);
 
         ecs_map_t *triggers;
@@ -46379,8 +46386,6 @@ void propagate_emit(
 {
     ecs_force_aperiodic(world);
 
-    ecs_log_push();
-
     if (!relation) {
         /* If no relation is provided, iterate all relations for entity */
         ecs_id_t pair = ecs_pair(EcsWildcard, entity);
@@ -46401,8 +46406,6 @@ void propagate_emit(
             propagate_emit_id_record(world, it, idr, eidr, entity, id_idr, relation);
         }
     }
-
-    ecs_log_pop();
 }
 
 void flecs_emit(
@@ -46424,6 +46427,9 @@ void flecs_emit(
     ecs_table_t *table = desc->table;
     int32_t row = desc->offset;
     int32_t i, ent, count = desc->count;
+    ecs_entity_t *entities = ecs_vector_get(
+        table->storage.entities, ecs_entity_t, row);
+    ecs_column_t *columns = table->storage.columns;
 
     if (!count) {
         count = ecs_table_count(table) - row;
@@ -46434,16 +46440,18 @@ void flecs_emit(
         .real_world = world,
         .table = table,
         .type = table->type,
-        .entities = ecs_vector_get(table->storage.entities, ecs_entity_t, row),
+        .entities = entities,
         .term_count = 1,
         .other_table = desc->other_table,
         .offset = row,
         .count = count,
-        .param = (void*)desc->param,
-        .flags = desc->table_event ? EcsIterTableOnly : 0
+        .param = (void*)desc->param
     };
 
     flecs_iter_init(&it, flecs_iter_cache_all);
+
+    ECS_BIT_COND(it.flags, EcsIterTableOnly, desc->table_event);
+    ECS_BIT_SET(it.flags, EcsIterIsValid);
 
     world->event_id ++;
 
@@ -46474,21 +46482,38 @@ void flecs_emit(
                 continue;
             }
 
+            ecs_id_record_t *id_idr = eidr->idr;
+            ecs_assert(id_idr != NULL, ECS_INTERNAL_ERROR, NULL);
+
+            printf("table event = %d\n", desc->table_event);
+
+            if (!desc->table_event) {
+                const ecs_type_info_t *ti = id_idr->type_info;
+                if (ti) {
+                    ecs_table_record_t *tr = ecs_table_cache_get(
+                        &id_idr->cache, table);
+                    ecs_assert(tr != NULL, ECS_INTERNAL_ERROR, NULL);
+
+                    int32_t column = tr->column;
+                    column = table->storage_map[column];
+                    if (column != -1) {
+                        printf("%d @ [%s]\n", column, ecs_type_str(world, table->type));
+                        ecs_size_t size = ti->size;
+                        it.ptrs[0] = ecs_vector_get_t(columns[column].data,
+                            size, ti->alignment, row);
+                        it.sizes[0] = size;
+                    }
+                }
+            }
+
             notify_triggers(world, &it, &eidr->triggers);
 
             if (count && !desc->table_event) {
-                /* Prefetch id record for id, so we can quickly 
-                 * eliminate tables that own the id vs. receive it
-                 * through a relationship */
-                ecs_id_record_t *id_idr = flecs_get_id_record(world, id);
-
                 /* If id has DontInherit, don't propagate */
                 if (id_idr && (id_idr->flags & ECS_ID_DONT_INHERIT)) {
                     continue;
                 }
 
-                ecs_entity_t *entities = ecs_vector_get(
-                    table->storage.entities, ecs_entity_t, row);
                 ecs_record_t **rptrs = ecs_vector_get(
                     table->storage.record_ptrs, ecs_record_t*, row);
 

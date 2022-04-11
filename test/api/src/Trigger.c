@@ -330,7 +330,7 @@ void Trigger_on_add_wildcard() {
 
     ecs_os_zeromem(&ctx);
 
-    ecs_add_id(world, e, TagB);
+    ecs_add(world, e, TagB);
 
     test_int(ctx.invoked, 1);
     test_int(ctx.count, 1);
