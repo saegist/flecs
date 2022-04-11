@@ -1534,17 +1534,34 @@ void Trigger_on_add_superset() {
         .ctx = &ctx
     });
 
+    Probe ctx_self = {0};
+    // ecs_trigger_init(world, &(ecs_trigger_desc_t){
+    //     .term.id = TagA,
+    //     .term.subj.set.mask = EcsSelf,
+    //     .events = {EcsOnAdd},
+    //     .callback = Trigger,
+    //     .ctx = &ctx_self
+    // });
+
     ecs_entity_t base_no_comp = ecs_new_id(world);
     test_int(ctx.invoked, 0);
 
     ecs_entity_t base = ecs_new(world, TagA);
     test_int(ctx.invoked, 0);
+    // test_int(ctx_self.invoked, 1);
 
+    ecs_os_zeromem(&ctx_self);
+
+    printf("\nnew_w_pair (%u)\n", base_no_comp);
     ecs_entity_t e = ecs_new_w_pair(world, EcsIsA, base_no_comp);
     test_assert(e != 0);
     test_int(ctx.invoked, 0);
+    // test_int(ctx_self.invoked, 0);
 
+    printf("\nadd_pair (%u to %u)\n", base, e);
+    ecs_log_set_level(2);
     ecs_add_pair(world, e, EcsIsA, base);
+    ecs_log_set_level(-1);
 
     test_int(ctx.invoked, 1);
     test_int(ctx.count, 1);
@@ -1562,6 +1579,7 @@ void Trigger_on_add_superset() {
     ecs_add(world, e, TagA);
 
     test_int(ctx.invoked, 0);
+    test_int(ctx_self.invoked, 1);
 
     ecs_fini(world);
 }

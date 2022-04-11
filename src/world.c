@@ -1200,7 +1200,7 @@ ecs_id_record_t* new_id_record(
     ecs_table_cache_init(&idr->cache);
 
     ecs_entity_t rel = 0, obj = 0;
-    if (ECS_HAS_ROLE(id, PAIR)) {
+    if (ECS_HAS_ROLE(id, PAIR) || ECS_HAS_ROLE(id, CASE)) {
         rel = ecs_pair_first(world, id);
         ecs_assert(rel != 0, ECS_INTERNAL_ERROR, NULL);
 

@@ -176,6 +176,11 @@ void register_trigger_for_id(
             inc_trigger_count(world, event, evt, id, 1);
         }
 
+        if (relation) {
+            inc_trigger_count(world, event, evt, 
+                ecs_pair(relation, EcsWildcard), 1);
+        }
+
         if (ecs_should_log_3()) {
             char *idstr = ecs_id_str(world, id);
             if (!relation) {
@@ -265,6 +270,11 @@ void unregister_trigger_for_id(
         }
 
         inc_trigger_count(world, event, evt, term_id, -1);
+
+        if (relation) {
+            inc_trigger_count(world, event, evt,
+                ecs_pair(relation, EcsWildcard), -1);
+        }
 
         if (id != term_id) {
             /* Id is different from term_id in case of a set trigger. If they're
@@ -538,6 +548,7 @@ void propagate_emit(
     ecs_entity_t relation)
 {
     ecs_force_aperiodic(world);
+    ecs_log_push();
 
     if (!relation) {
         /* If no relation is provided, iterate all relations for entity */
@@ -549,14 +560,147 @@ void propagate_emit(
 
         ecs_id_record_t *idr = widr;
         while ((idr = idr->second.next)) {
-            propagate_emit_id_record(world, it, idr, eidr, entity, id_idr, relation);
+            propagate_emit_id_record(
+                world, it, idr, eidr, entity, id_idr, relation);
         }
     } else {
         ecs_id_t pair = ecs_pair(relation, entity);
         ecs_id_record_t *idr = flecs_get_id_record(world, pair);
         if (idr) {
-            propagate_emit_id_record(world, it, idr, eidr, entity, id_idr, relation);
+            propagate_emit_id_record(
+                world, it, idr, eidr, entity, id_idr, relation);
         }
+    }
+
+    ecs_log_pop();
+}
+
+static
+void emit_event(
+    ecs_world_t *world,
+    ecs_iter_t *it,
+    const ecs_map_t *evt,
+    ecs_id_t *id_array,
+    int32_t id_count,
+    ecs_table_t *table,
+    ecs_column_t *columns,
+    int32_t row,
+    int32_t count,
+    bool table_event,
+    bool notify_self)
+{
+    int32_t i, ent;
+    for (i = 0; i < id_count; i ++) {
+        ecs_id_t id = id_array[i];
+
+        ecs_id_record_t *id_idr = NULL;
+
+        const ecs_event_id_record_t *eidr = get_triggers_for_id(evt, id);
+        if (eidr) {
+            id_idr = eidr->idr;
+
+            /* Event id record should have ensured id record */
+            ecs_assert(id_idr != NULL, ECS_INTERNAL_ERROR, NULL);
+        } else {
+            id_idr = flecs_get_id_record(world, id);
+        }
+
+        if (!id_idr) {
+            /* If there's no id record there can't be anything to notify for */
+            return;
+        }
+
+        if (!table_event) {
+            const ecs_type_info_t *ti = id_idr->type_info;
+            if (ti) {
+                ecs_table_record_t *tr = ecs_table_cache_get(
+                    &id_idr->cache, table);
+                ecs_assert(tr != NULL, ECS_INTERNAL_ERROR, NULL);
+
+                int32_t column = tr->column;
+                column = table->storage_map[column];
+                if (column != -1) {
+                    ecs_size_t size = ti->size;
+                    it->ptrs[0] = ecs_vector_get_t(columns[column].data,
+                        size, ti->alignment, row);
+                    it->sizes[0] = size;
+                }
+            }
+        }
+
+        it->ids[0] = id;
+        it->event_id = id;
+
+        /* Populate array with wildcard ids to evaluate */
+        ecs_id_t wids[4];
+        ecs_id_t role = id & ECS_ROLE_MASK;
+        int32_t wid_cur = 1;
+        if (role == ECS_PAIR || role == ECS_CASE) {
+            ecs_entity_t r = ECS_PAIR_FIRST(id);
+            ecs_entity_t o = ECS_PAIR_SECOND(id);
+            wids[0] = role | ecs_entity_t_comb(o, EcsWildcard);
+            wids[1] = role | ecs_entity_t_comb(EcsWildcard, r);
+            wids[2] = role | ecs_entity_t_comb(EcsWildcard, EcsWildcard);
+            wid_cur = 3;
+
+            if (notify_self && ecs_is_valid(world, r) && 
+                ecs_has_id(world, r, EcsAcyclic)) 
+            {
+                wids[3] = 0;
+                wid_cur ++;
+            }
+        } else {
+            wids[0] = EcsWildcard;
+        }
+
+        do {
+            if (eidr) {
+                notify_triggers(world, it, &eidr->triggers);
+
+                if (count && !table_event) {
+                    ecs_record_t **rptrs = ecs_vector_get(
+                        table->storage.record_ptrs, ecs_record_t*, row);
+
+                    /* Propagate event to entities */
+                    for (ent = 0; ent < count; ent ++) {
+                        ecs_record_t *r = rptrs[ent];
+                        if (!r) {
+                            goto next;
+                        }
+
+                        uint32_t flags = ECS_RECORD_TO_ROW_FLAGS(r->row);
+                        if (flags & ECS_FLAG_OBSERVED_ACYCLIC) {
+                            ecs_entity_t src = it->entities[ent];
+                            it->subjects[0] = src;
+                            propagate_emit(world, it, eidr, src, id_idr, 0);
+                        }
+                    }
+                }
+            }
+
+        next:
+            if (-- wid_cur < 0) {
+                break;
+            }
+
+            ecs_id_t wid = wids[wid_cur];
+            if (wid) {
+                eidr = get_triggers_for_id(evt, wid);
+            } else if (!table_event) {
+                ecs_assert(ECS_HAS_ROLE(id, PAIR), ECS_INTERNAL_ERROR, NULL);
+                ecs_entity_t obj = ecs_pair_second(world, id);
+                ecs_record_t *r = ecs_eis_get(world, obj);
+
+                if (!r) {
+                    break;
+                }
+
+                ecs_table_t *obj_table = r->table;
+                if (!obj_table) {
+                    continue;
+                }
+            }
+        } while (true);
     }
 }
 
@@ -578,7 +722,7 @@ void flecs_emit(
     ecs_entity_t event = desc->event;
     ecs_table_t *table = desc->table;
     int32_t row = desc->offset;
-    int32_t i, ent, count = desc->count;
+    int32_t count = desc->count;
     ecs_entity_t *entities = NULL;
     ecs_column_t *columns = NULL;
     bool table_event = desc->table_event;
@@ -628,96 +772,8 @@ void flecs_emit(
 
         it.event = event;
 
-        /* Iterate ids for event */
-        int32_t id_count = ids->count;
-        ecs_id_t *id_array = ids->array;
-        for (i = 0; i < id_count; i ++) {
-            ecs_id_t id = id_array[i];
-
-            ecs_id_record_t *id_idr = NULL;
-            const ecs_event_id_record_t *eidr = get_triggers_for_id(evt, id);
-            if (eidr) {
-                id_idr = eidr->idr;
-            } else {
-                id_idr = flecs_get_id_record(world, id);
-            }
-
-            ecs_assert(id_idr != NULL, ECS_INTERNAL_ERROR, NULL);
-
-            if (!table_event) {
-                const ecs_type_info_t *ti = id_idr->type_info;
-                if (ti) {
-                    ecs_table_record_t *tr = ecs_table_cache_get(
-                        &id_idr->cache, table);
-                    ecs_assert(tr != NULL, ECS_INTERNAL_ERROR, NULL);
-
-                    int32_t column = tr->column;
-                    column = table->storage_map[column];
-                    if (column != -1) {
-                        ecs_size_t size = ti->size;
-                        it.ptrs[0] = ecs_vector_get_t(columns[column].data,
-                            size, ti->alignment, row);
-                        it.sizes[0] = size;
-                    }
-                }
-            }
-
-            it.ids[0] = id;
-            it.event_id = id;
-
-            /* Populate array with wildcard ids to evaluate */
-            ecs_id_t wids[3];
-            ecs_id_t role = id & ECS_ROLE_MASK;
-            int32_t wid_cur = 1;
-            if (role == ECS_PAIR || role == ECS_CASE) {
-                ecs_entity_t r = ECS_PAIR_FIRST(id);
-                ecs_entity_t o = ECS_PAIR_SECOND(id);
-                wids[0] = role | ecs_entity_t_comb(o, EcsWildcard);
-                wids[1] = role | ecs_entity_t_comb(EcsWildcard, r);
-                wids[2] = role | ecs_entity_t_comb(EcsWildcard, EcsWildcard);
-                wid_cur = 3;
-            } else {
-                wids[0] = EcsWildcard;
-            }
-
-            do {
-                if (eidr) {
-                    notify_triggers(world, &it, &eidr->triggers);
-
-                    if (count && !table_event) {
-                        /* If id has DontInherit, don't propagate */
-                        if (id_idr && (id_idr->flags & ECS_ID_DONT_INHERIT)) {
-                            goto next;
-                        }
-
-                        ecs_record_t **rptrs = ecs_vector_get(
-                            table->storage.record_ptrs, ecs_record_t*, row);
-
-                        /* Propagate event to entities */
-                        for (ent = 0; ent < count; ent ++) {
-                            ecs_record_t *r = rptrs[ent];
-                            if (!r) {
-                                goto next;
-                            }
-
-                            uint32_t flags = ECS_RECORD_TO_ROW_FLAGS(r->row);
-                            if (flags & ECS_FLAG_OBSERVED_ACYCLIC) {
-                                ecs_entity_t src = entities[ent];
-                                it.subjects[0] = src;
-                                propagate_emit(world, &it, eidr, src, id_idr, 0);
-                            }
-                        }
-                    }
-                }
-
-            next:
-                if (-- wid_cur < 0) {
-                    break;
-                }
-
-                eidr = get_triggers_for_id(evt, wids[wid_cur]);
-            } while (true);
-        }
+        emit_event(world, &it, evt, ids->array, ids->count, 
+            table, columns, row, count, table_event, true);
     }
     
 error:

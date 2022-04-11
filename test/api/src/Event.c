@@ -201,7 +201,8 @@ void Event_emit_event_for_empty_table() {
         .event = evt,
         .ids = &(ecs_ids_t){.count = 1, .array = (ecs_id_t[]){ TagA }},
         .table = table,
-        .observable = world
+        .observable = world,
+        .table_event = true
     });
 
     test_int(empty_table_callback_invoked, 1);
