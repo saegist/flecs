@@ -618,6 +618,7 @@ void flecs_bootstrap(
     ecs_set_name_prefix(world, "Ecs");
 
     ecs_ensure(world, EcsWildcard);
+    ecs_ensure(world, EcsTag);
 
     /* Bootstrap builtin components */
     flecs_init_type_info(world, EcsComponent, { 
@@ -647,6 +648,10 @@ void flecs_bootstrap(
     flecs_init_type_info(world, EcsType, { 0 });
     flecs_init_type_info(world, EcsQuery, { 0 });
     flecs_init_type_info(world, EcsIterable, { 0 });
+
+    /* Cache (*, *) */
+    world->idr_wildcard_wildcard = flecs_ensure_id_record(world,
+        ecs_pair(EcsWildcard, EcsWildcard));
 
     /* Create table for initial components */
     ecs_table_t *table = bootstrap_component_table(world);
@@ -766,11 +771,9 @@ void flecs_bootstrap(
     ecs_add_id(world, EcsChildOf, EcsDontInherit);
     ecs_add_id(world, ecs_id(EcsIdentifier), EcsDontInherit);
 
-    /* Cache often used id records */
+    /* Cache (IsA, *) */
     world->idr_isa_wildcard = flecs_ensure_id_record(world, 
         ecs_pair(EcsIsA, EcsWildcard));
-    world->idr_wildcard_wildcard = flecs_ensure_id_record(world,
-        ecs_pair(EcsWildcard, EcsWildcard));
 
     ecs_trigger_init(world, &(ecs_trigger_desc_t) {
         .term = { 

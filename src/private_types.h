@@ -124,8 +124,6 @@ struct ecs_data_t {
 typedef struct ecs_table_diff_t {
     ecs_ids_t added;         /* Components added between tables */
     ecs_ids_t removed;       /* Components removed between tables */
-    ecs_ids_t on_set;        /* OnSet from exposing/adding base components */
-    ecs_ids_t un_set;        /* UnSet from hiding/removing base components */
 } ecs_table_diff_t;
 
 /** Edge linked list (used to keep track of incoming edges) */
@@ -349,22 +347,31 @@ struct ecs_query_t {
 
 /** All triggers for a specific (component) id */
 typedef struct ecs_event_id_record_t {
-    /* Triggers for Self */
+    /* Self triggers */
     ecs_map_t triggers; /* map<trigger_id, trigger_t> */
 
-    /* Triggers for SuperSet, SubSet */
-    ecs_map_t set_triggers; /* map<trigger_id, trigger_t> */
+    /* Superset triggers */
+    ecs_map_t superset; /* map<relation_id, map<trigger_id, trigger_t>> */
 
-    /* Triggers for Self with non-This subject */
-    ecs_map_t entity_triggers; /* map<trigger_id, trigger_t> */
+    /* Triggers for a single entity */
+    ecs_map_t entity; /* map<entity_t, map<trigger_id, trigger_t>> */
+
+    /* Superset triggers for a single entity */
+    ecs_map_t superset_entity; /* map<entity_t, map<trigger_id, trigger_t>> */
 
     /* Number of active triggers for (component) id */
     int32_t trigger_count;
+
+    /* Reference to id record */
+    ecs_id_record_t *idr;
 } ecs_event_id_record_t;
 
 /** All triggers for a specific event */
 typedef struct ecs_event_record_t {
     ecs_map_t event_ids;     /* map<id, ecs_event_id_record_t> */
+
+    /* Number of wildcard triggers for event */
+    int32_t wildcard_count;
 } ecs_event_record_t;
 
 /** Types for deferred operations */

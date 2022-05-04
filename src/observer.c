@@ -85,6 +85,8 @@ bool observer_run(ecs_iter_t *it) {
             }
         }
 
+        user_it.subjects[pivot_term] = it->subjects[0];
+
         flecs_iter_populate_data(world, &user_it, 
             it->table, it->offset, it->count, user_it.ptrs, user_it.sizes);
 

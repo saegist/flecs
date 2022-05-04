@@ -1154,48 +1154,56 @@ int ecs_fini(
 
     /* Run UnSet/OnRemove actions for components while the store is still
      * unmodified by cleanup. */
+    ecs_dbg_1("invoke UnSet + OnRemove triggers");
     fini_unset_tables(world);
     
     /* Run fini actions (simple callbacks ran when world is deleted) before
      * destroying the storage */
+    ecs_dbg_1("run fini actions");
     fini_actions(world);
 
     /* This will destroy all entities and components. After this point no more
      * user code is executed. */
+    ecs_dbg_1("cleanup storage");
     fini_store(world);
 
     /* Purge deferred operations from the queue. This discards operations but
      * makes sure that any resources in the queue are freed */
+    ecs_dbg_1("purge defer queue");
     flecs_defer_purge(world, &world->stage);
 
     /* Entity index is kept alive until this point so that user code can do
      * validity checks on entity ids, even though after store cleanup the index
      * will be empty, so all entity ids are invalid. */
+    ecs_dbg_1("cleanup entity index");
     flecs_sparse_fini(&world->store.entity_index);
     
     if (world->locking_enabled) {
         ecs_os_mutex_free(world->mutex);
     }
 
-    ecs_trace("table store deinitialized");
+    ecs_trace("storage destroyed");
 
+    ecs_dbg_1("cleanup stages");
     fini_stages(world);
 
+    ecs_dbg_1("cleanup component lifecycle data");
     fini_component_lifecycle(world);
 
+    ecs_dbg_1("cleanup queries");
     fini_queries(world);
 
+    ecs_dbg_1("cleanup observers");
     fini_observers(world);
 
+    ecs_dbg_1("cleanup id records");
     flecs_fini_id_records(world);
 
+    ecs_dbg_1("cleanup misc");
     flecs_observable_fini(&world->observable);
-
     flecs_sparse_free(world->triggers);
-
     flecs_name_index_fini(&world->aliases);
     flecs_name_index_fini(&world->symbols);
-    
     fini_misc(world);
 
     ecs_os_enable_high_timer_resolution(false);
@@ -1743,7 +1751,7 @@ void flecs_process_pending_tables(
                 };
 
                 int32_t table_count = ecs_table_count(table);
-                
+
                 flecs_emit(world, world, &(ecs_event_desc_t) {
                     .event = table_count
                         ? EcsOnTableFill 
@@ -1752,7 +1760,7 @@ void flecs_process_pending_tables(
                     .table = table,
                     .ids = &ids,
                     .observable = world,
-                    .table_event = true
+                    .flags = EcsIterTableOnly
                 });
 
                 world->info.empty_table_count += (table_count == 0) * 2 - 1;

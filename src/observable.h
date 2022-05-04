@@ -12,12 +12,6 @@ void flecs_observable_init(
 void flecs_observable_fini(
     ecs_observable_t *observable);
 
-void flecs_triggers_notify(
-    ecs_iter_t *it,
-    ecs_observable_t *observable,
-    ecs_ids_t *ids,
-    ecs_entity_t event);
-
 void flecs_set_triggers_notify(
     ecs_iter_t *it,
     ecs_observable_t *observable,

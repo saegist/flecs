@@ -193,6 +193,8 @@ extern "C" {
 #define EcsIterEntityOptional          (1u << 5u)  /* Treat terms with entity subject as optional */
 #define EcsIterNoResults               (1u << 6u)  /* Iterator has no results */
 #define EcsIterIgnoreThis              (1u << 7u)  /* Only evaluate non-this terms */
+#define EcsIterOtherTableIsDst         (1u << 8u)  /* Is other_table destination (used by OnRemove) */
+#define EcsIterIsSet                   (1u << 9u)  /* Is (OnAdd) event caused by set? */
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -6418,12 +6420,8 @@ typedef struct ecs_event_desc_t {
     /* Observable (usually the world) */
     ecs_poly_t *observable;
 
-    /* Table events apply to tables, not the entities in the table. When
-     * enabled, (super)set triggers are not notified. */
-    bool table_event;
-
-    /* When set, events will only be propagated by traversing the relation */
-    ecs_entity_t relation;
+    /* Iterator flags that will be set on the iterator passed to the trigger */
+    ecs_flags32_t flags;
 } ecs_event_desc_t;
 
 /** Send event.
@@ -7497,7 +7495,7 @@ void ecs_table_lock(
 FLECS_API
 void ecs_table_unlock(
     ecs_world_t *world,
-    ecs_table_t *table);    
+    ecs_table_t *table);
 
 /** Returns whether table is a module or contains module contents
  * Returns true for tables that have module contents. Can be used to filter out

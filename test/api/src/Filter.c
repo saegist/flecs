@@ -5973,7 +5973,7 @@ void Filter_filter_instanced_w_singleton() {
 
 void Filter_filter_instanced_w_base() {
     ecs_world_t *world = ecs_init();
-    
+
     ECS_TAG(world, Tag);
 
     ECS_COMPONENT(world, Position);

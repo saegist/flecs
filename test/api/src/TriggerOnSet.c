@@ -675,7 +675,7 @@ void TriggerOnSet_on_set_after_remove_override() {
 
     test_int(ctx.e[0], e);
     test_int(ctx.c[0][0], ecs_id(Position));
-    test_int(ctx.s[0][0], 0);
+    test_int(ctx.s[0][0], Base);
 
     ecs_fini(world);
 }

@@ -6294,8 +6294,8 @@ void Query_cascade_rematch_2_lvls() {
     ecs_entity_t e_1 = ecs_set(world, 0, Position, {30, 40});
     ecs_entity_t e_2 = ecs_set(world, 0, Position, {50, 60});
     ecs_entity_t e_3 = ecs_set(world, 0, Position, {70, 80});
+    
     ecs_add_pair(world, e_3, EcsChildOf, e_2);
-
     ecs_add_pair(world, e_2, EcsChildOf, e_1);
     ecs_add_pair(world, e_1, EcsChildOf, e_0);
 
@@ -6335,7 +6335,6 @@ void Query_cascade_rematch_2_lvls() {
     ecs_add_pair(world, e_0, EcsChildOf, e_1);
     ecs_add_pair(world, e_1, EcsChildOf, e_2);
     ecs_add_pair(world, e_2, EcsChildOf, e_3);
-
 
     it = ecs_query_iter(world, q);
     test_bool(true, ecs_query_next(&it));

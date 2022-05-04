@@ -441,8 +441,7 @@ void Event_emit_table_event() {
         .event = evt,
         .ids = &(ecs_ids_t){.array = (ecs_id_t[]){ TagA }, .count = 1},
         .table = base_table,
-        .observable = world,
-        .table_event = false
+        .observable = world
     });
 
     test_int(ctx_a.invoked, 1);
@@ -453,7 +452,7 @@ void Event_emit_table_event() {
         .ids = &(ecs_ids_t){.array = (ecs_id_t[]){ TagA }, .count = 1},
         .table = base_table,
         .observable = world,
-        .table_event = true
+        .flags = EcsIterTableOnly
     });
 
     test_int(ctx_a.invoked, 2);

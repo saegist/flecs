@@ -1718,7 +1718,7 @@ void query_iter_init(
 static
 void query_on_event(
     ecs_iter_t *it) 
-{ 
+{
     /* Because this is the observer::run callback, checking if this is event is
      * already handled is not done for us. */
     ecs_world_t *world = it->world;
@@ -2479,6 +2479,8 @@ bool ecs_query_next_instanced(
             cur.count = node->count;
             if (!cur.count) {
                 cur.count = ecs_table_count(table);
+
+                ecs_trace("query::next: [%s]", ecs_table_str(world, table));
 
                 /* List should never contain empty tables */
                 ecs_assert(cur.count != 0, ECS_INTERNAL_ERROR, NULL);

@@ -224,7 +224,7 @@ void OnDelete_on_delete_object_delete_2_levels_w_tag() {
 
     ecs_add(world, e1, Tag);
 
-    ecs_force_aperiodic(world);
+    ecs_run_aperiodic(world, 0);
 
     ecs_delete(world, root);
 

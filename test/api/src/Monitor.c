@@ -159,7 +159,7 @@ void Monitor_1_parent() {
 }
 
 void Monitor_1_comp_1_parent() {
-    ecs_world_t *world = ecs_init();
+    ecs_world_t *world = ecs_mini();
 
     ECS_COMPONENT(world, Position);
     ECS_COMPONENT(world, Velocity);

@@ -63,6 +63,8 @@ extern "C" {
 #define EcsIterEntityOptional          (1u << 5u)  /* Treat terms with entity subject as optional */
 #define EcsIterNoResults               (1u << 6u)  /* Iterator has no results */
 #define EcsIterIgnoreThis              (1u << 7u)  /* Only evaluate non-this terms */
+#define EcsIterOtherTableIsDst         (1u << 8u)  /* Is other_table destination (used by OnRemove) */
+#define EcsIterIsSet                   (1u << 9u)  /* Is (OnAdd) event caused by set? */
 
 
 ////////////////////////////////////////////////////////////////////////////////

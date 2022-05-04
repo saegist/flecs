@@ -1274,6 +1274,7 @@ void Pairs_oneof_other(void);
 void Pairs_oneof_self_constraint_violated(void);
 void Pairs_oneof_other_constraint_violated(void);
 void Pairs_oneof_other_rel_parent_constraint_violated(void);
+void Pairs_empty_world_one_acyclic_relation(void);
 
 // Testsuite 'Trigger'
 void Trigger_on_add_trigger_before_table(void);
@@ -1320,6 +1321,7 @@ void Trigger_on_add_superset_childof(void);
 void Trigger_on_remove_superset_childof(void);
 void Trigger_on_add_self_superset(void);
 void Trigger_on_remove_self_superset(void);
+void Trigger_superset_wildcard_add_isa(void);
 void Trigger_add_twice(void);
 void Trigger_remove_twice(void);
 void Trigger_on_remove_w_clear(void);
@@ -1360,11 +1362,10 @@ void Trigger_on_add_base_2_entities(void);
 void Trigger_on_add_base_2_entities_filter(void);
 void Trigger_on_set_base_w_value_2_entities(void);
 void Trigger_on_set_base_w_value_2_entities_instanced(void);
-void Trigger_on_add_base_w_override(void);
-void Trigger_on_set_base_w_override(void);
 void Trigger_entity_source_1_trigger(void);
 void Trigger_entity_source_2_triggers(void);
 void Trigger_entity_source_base_set(void);
+void Trigger_entity_source_base_set_other_relation(void);
 void Trigger_not_from_superset(void);
 void Trigger_create_stresstest(void);
 void Trigger_add_non_existing_entity(void);
@@ -1386,6 +1387,23 @@ void Trigger_on_set_self_superset_from_child_base_of_prefab(void);
 void Trigger_on_set_self_auto_override(void);
 void Trigger_on_set_self_superset_auto_override(void);
 void Trigger_on_set_superset_auto_override(void);
+void Trigger_on_set_self_auto_override_no_base_component(void);
+void Trigger_on_set_self_superset_auto_override_no_base_component(void);
+void Trigger_on_set_superset_auto_override_no_base_component(void);
+void Trigger_on_set_self_override_w_add(void);
+void Trigger_on_set_self_override_w_set(void);
+void Trigger_on_set_self_override_w_set_on_base(void);
+void Trigger_on_set_self_superset_override_w_set_on_base(void);
+void Trigger_on_set_superset_override_w_set_on_base(void);
+void Trigger_isa_dont_propagate_identifier(void);
+void Trigger_isa_dont_propagate_childof(void);
+void Trigger_isa_dont_propagate_prefab_tag(void);
+void Trigger_isa_dont_propagate_identifier_w_wildcard_trigger(void);
+void Trigger_isa_dont_propagate_childof_w_wildcard_trigger(void);
+void Trigger_isa_dont_propagate_prefab_tag_w_wildcard_trigger(void);
+void Trigger_propagate_on_add_once_w_event_wildcard_trigger(void);
+void Trigger_propagate_on_set_once_w_event_wildcard_trigger(void);
+void Trigger_propagate_un_set_once_w_event_wildcard_trigger(void);
 
 // Testsuite 'Observer'
 void Observer_2_terms_w_on_add(void);
@@ -6845,6 +6863,10 @@ bake_test_case Pairs_testcases[] = {
     {
         "oneof_other_rel_parent_constraint_violated",
         Pairs_oneof_other_rel_parent_constraint_violated
+    },
+    {
+        "empty_world_one_acyclic_relation",
+        Pairs_empty_world_one_acyclic_relation
     }
 };
 
@@ -7026,6 +7048,10 @@ bake_test_case Trigger_testcases[] = {
         Trigger_on_remove_self_superset
     },
     {
+        "superset_wildcard_add_isa",
+        Trigger_superset_wildcard_add_isa
+    },
+    {
         "add_twice",
         Trigger_add_twice
     },
@@ -7186,14 +7212,6 @@ bake_test_case Trigger_testcases[] = {
         Trigger_on_set_base_w_value_2_entities_instanced
     },
     {
-        "on_add_base_w_override",
-        Trigger_on_add_base_w_override
-    },
-    {
-        "on_set_base_w_override",
-        Trigger_on_set_base_w_override
-    },
-    {
         "entity_source_1_trigger",
         Trigger_entity_source_1_trigger
     },
@@ -7204,6 +7222,10 @@ bake_test_case Trigger_testcases[] = {
     {
         "entity_source_base_set",
         Trigger_entity_source_base_set
+    },
+    {
+        "entity_source_base_set_other_relation",
+        Trigger_entity_source_base_set_other_relation
     },
     {
         "not_from_superset",
@@ -7288,6 +7310,74 @@ bake_test_case Trigger_testcases[] = {
     {
         "on_set_superset_auto_override",
         Trigger_on_set_superset_auto_override
+    },
+    {
+        "on_set_self_auto_override_no_base_component",
+        Trigger_on_set_self_auto_override_no_base_component
+    },
+    {
+        "on_set_self_superset_auto_override_no_base_component",
+        Trigger_on_set_self_superset_auto_override_no_base_component
+    },
+    {
+        "on_set_superset_auto_override_no_base_component",
+        Trigger_on_set_superset_auto_override_no_base_component
+    },
+    {
+        "on_set_self_override_w_add",
+        Trigger_on_set_self_override_w_add
+    },
+    {
+        "on_set_self_override_w_set",
+        Trigger_on_set_self_override_w_set
+    },
+    {
+        "on_set_self_override_w_set_on_base",
+        Trigger_on_set_self_override_w_set_on_base
+    },
+    {
+        "on_set_self_superset_override_w_set_on_base",
+        Trigger_on_set_self_superset_override_w_set_on_base
+    },
+    {
+        "on_set_superset_override_w_set_on_base",
+        Trigger_on_set_superset_override_w_set_on_base
+    },
+    {
+        "isa_dont_propagate_identifier",
+        Trigger_isa_dont_propagate_identifier
+    },
+    {
+        "isa_dont_propagate_childof",
+        Trigger_isa_dont_propagate_childof
+    },
+    {
+        "isa_dont_propagate_prefab_tag",
+        Trigger_isa_dont_propagate_prefab_tag
+    },
+    {
+        "isa_dont_propagate_identifier_w_wildcard_trigger",
+        Trigger_isa_dont_propagate_identifier_w_wildcard_trigger
+    },
+    {
+        "isa_dont_propagate_childof_w_wildcard_trigger",
+        Trigger_isa_dont_propagate_childof_w_wildcard_trigger
+    },
+    {
+        "isa_dont_propagate_prefab_tag_w_wildcard_trigger",
+        Trigger_isa_dont_propagate_prefab_tag_w_wildcard_trigger
+    },
+    {
+        "propagate_on_add_once_w_event_wildcard_trigger",
+        Trigger_propagate_on_add_once_w_event_wildcard_trigger
+    },
+    {
+        "propagate_on_set_once_w_event_wildcard_trigger",
+        Trigger_propagate_on_set_once_w_event_wildcard_trigger
+    },
+    {
+        "propagate_un_set_once_w_event_wildcard_trigger",
+        Trigger_propagate_un_set_once_w_event_wildcard_trigger
     }
 };
 
@@ -9644,14 +9734,14 @@ static bake_test_suite suites[] = {
         "Pairs",
         NULL,
         NULL,
-        98,
+        99,
         Pairs_testcases
     },
     {
         "Trigger",
         NULL,
         NULL,
-        110,
+        127,
         Trigger_testcases
     },
     {

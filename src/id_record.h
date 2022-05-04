@@ -134,6 +134,12 @@ void flecs_id_reachable_invalidate(
 void flecs_id_reachable_revalidate(
     ecs_world_t *world);
 
+/* Get reachable ids for specific entity/relation */
+const ecs_reachable_ids_t* flecs_get_reachable(
+    ecs_world_t *world,
+    ecs_entity_t relation,
+    ecs_table_t *table);
+
 /* Cleanup all reachable id caches */
 void flecs_fini_id_reachable(
     ecs_world_t *world);

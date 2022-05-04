@@ -2736,3 +2736,14 @@ void Pairs_oneof_other_rel_parent_constraint_violated() {
     test_expect_abort();
     ecs_add_pair(world, e, Rel, ObjC);
 }
+
+void Pairs_empty_world_one_acyclic_relation() {
+    ecs_world_t *world = ecs_mini();
+
+    ecs_entity_t r = ecs_new_id(world);
+    ecs_add_id(world, r, EcsAcyclic);
+
+    ecs_fini(world);
+
+    test_assert(true); // ensure cleanup was OK
+}
