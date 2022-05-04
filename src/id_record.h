@@ -18,16 +18,25 @@ typedef struct ecs_id_record_elem_t {
     struct ecs_id_record_t *prev, *next;
 } ecs_id_record_elem_t;
 
+typedef struct ecs_reachable_ids_t {
+    ecs_table_t *table;
+    ecs_entity_t *sources;
+    int32_t counter;
+} ecs_reachable_ids_t;
+
 /* Payload for id index which contains all datastructures for an id. */
 struct ecs_id_record_t {
     /* Cache with all tables that contain the id. Must be first member. */
     ecs_table_cache_t cache; /* table_cache<ecs_table_record_t> */
 
-    /* Flags for id */
+    /* Flags for id (see api_defines.h) */
     ecs_flags32_t flags;
 
     /* Name lookup index (currently only used for ChildOf pairs) */
     ecs_hashmap_t *name_index;
+
+    ecs_map_t *reachable; /* map<table_id, reachable_ids_t> */
+    int32_t reachable_counter;
 
     /* Cached pointer to type info for id, if id contains data. */
     const ecs_type_info_t *type_info;
@@ -40,6 +49,10 @@ struct ecs_id_record_t {
     ecs_id_record_elem_t first;   /* (R, *) */
     ecs_id_record_elem_t second;  /* (*, O) */
     ecs_id_record_elem_t acyclic; /* (*, O) with only acyclic relations */
+
+    /* List of invalidated elements for updating the reachable id cache. The
+     * id record for (*, *) contains the head of the list. */
+    ecs_id_record_elem_t reachable_changed;
 };
 
 /* Get id record for id */
@@ -111,6 +124,19 @@ ecs_id_record_t* flecs_empty_table_iter(
     ecs_world_t *world,
     ecs_id_t id,
     ecs_table_cache_iter_t *out);
+
+/* Invalidate reachable id cache for e */
+void flecs_id_reachable_invalidate(
+    ecs_world_t *world,
+    ecs_entity_t e);
+
+/* Revalidate reachable id caches */
+void flecs_id_reachable_revalidate(
+    ecs_world_t *world);
+
+/* Cleanup all reachable id caches */
+void flecs_fini_id_reachable(
+    ecs_world_t *world);
 
 /* Cleanup all id records in world */
 void flecs_fini_id_records(

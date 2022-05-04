@@ -677,9 +677,7 @@ ecs_table_t* find_or_create(
 {    
     ecs_poly_assert(world, ecs_world_t);   
 
-    /* Make sure array is ordered and does not contain duplicates */
     int32_t id_count = ids->count;
-
     if (!id_count) {
         return &world->store.root;
     }
@@ -1425,6 +1423,15 @@ ecs_table_t* flecs_table_find_or_create(
 {
     ecs_poly_assert(world, ecs_world_t);
     return find_or_create(world, ids, NULL);
+}
+
+ecs_table_t* flecs_table_find_or_create_w_vector(
+    ecs_world_t *world,
+    const ecs_ids_t *ids,
+    ecs_vector_t *vec)
+{
+    ecs_poly_assert(world, ecs_world_t);
+    return find_or_create(world, ids, vec);
 }
 
 void flecs_init_root_table(

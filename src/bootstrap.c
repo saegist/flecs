@@ -766,9 +766,11 @@ void flecs_bootstrap(
     ecs_add_id(world, EcsChildOf, EcsDontInherit);
     ecs_add_id(world, ecs_id(EcsIdentifier), EcsDontInherit);
 
-    /* The (IsA, *) id record is used often in searches, so cache it */
+    /* Cache often used id records */
     world->idr_isa_wildcard = flecs_ensure_id_record(world, 
         ecs_pair(EcsIsA, EcsWildcard));
+    world->idr_wildcard_wildcard = flecs_ensure_id_record(world,
+        ecs_pair(EcsWildcard, EcsWildcard));
 
     ecs_trigger_init(world, &(ecs_trigger_desc_t) {
         .term = { 

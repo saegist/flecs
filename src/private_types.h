@@ -491,6 +491,9 @@ struct ecs_world_t {
     /* Cached handle to (IsA, *) */
     ecs_id_record_t *idr_isa_wildcard;
 
+    /* Cached handle to (*, *) */
+    ecs_id_record_t *idr_wildcard_wildcard;
+
     /* -- Mixins -- */
     ecs_world_t *self;
     ecs_observable_t observable;
@@ -498,6 +501,9 @@ struct ecs_world_t {
 
     /* Unique id per generated event used to prevent duplicate notifications */
     int32_t event_id;
+
+    /* Counter used for cache revalidation */
+    int32_t reachable_counter;
 
     /* Is entity range checking enabled? */
     bool range_check_enabled;

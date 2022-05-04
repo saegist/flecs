@@ -199,11 +199,16 @@ void init_storage_table(
         table->storage_ids = ecs_vector_first(type, ecs_id_t);
     }
 
-    if (acyclic_ids.count && acyclic_ids.count != count) {
-        table->acyclic_table = flecs_table_find_or_create(world, &acyclic_ids);
-        table->acyclic_table->refcount ++;
+    if (acyclic_ids.count) {
+        if (acyclic_ids.count != count) {
+            table->acyclic_table = flecs_table_find_or_create(
+                world, &acyclic_ids);
+            table->acyclic_table->refcount ++;
+        } else {
+            table->acyclic_table = table;
+        }
     } else {
-        table->acyclic_table = table;
+        table->acyclic_table = NULL;
     }
 
     if (storage_ids.array != array) {

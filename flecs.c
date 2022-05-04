@@ -760,6 +760,9 @@ struct ecs_world_t {
     /* Cached handle to (IsA, *) */
     ecs_id_record_t *idr_isa_wildcard;
 
+    /* Cached handle to (*, *) */
+    ecs_id_record_t *idr_wildcard_wildcard;
+
     /* -- Mixins -- */
     ecs_world_t *self;
     ecs_observable_t observable;
@@ -767,6 +770,9 @@ struct ecs_world_t {
 
     /* Unique id per generated event used to prevent duplicate notifications */
     int32_t event_id;
+
+    /* Counter used for cache revalidation */
+    int32_t reachable_counter;
 
     /* Is entity range checking enabled? */
     bool range_check_enabled;
@@ -953,16 +959,25 @@ typedef struct ecs_id_record_elem_t {
     struct ecs_id_record_t *prev, *next;
 } ecs_id_record_elem_t;
 
+typedef struct ecs_reachable_ids_t {
+    ecs_table_t *table;
+    ecs_entity_t *sources;
+    int32_t counter;
+} ecs_reachable_ids_t;
+
 /* Payload for id index which contains all datastructures for an id. */
 struct ecs_id_record_t {
     /* Cache with all tables that contain the id. Must be first member. */
     ecs_table_cache_t cache; /* table_cache<ecs_table_record_t> */
 
-    /* Flags for id */
+    /* Flags for id (see api_defines.h) */
     ecs_flags32_t flags;
 
     /* Name lookup index (currently only used for ChildOf pairs) */
     ecs_hashmap_t *name_index;
+
+    ecs_map_t *reachable; /* map<table_id, reachable_ids_t> */
+    int32_t reachable_counter;
 
     /* Cached pointer to type info for id, if id contains data. */
     const ecs_type_info_t *type_info;
@@ -975,6 +990,10 @@ struct ecs_id_record_t {
     ecs_id_record_elem_t first;   /* (R, *) */
     ecs_id_record_elem_t second;  /* (*, O) */
     ecs_id_record_elem_t acyclic; /* (*, O) with only acyclic relations */
+
+    /* List of invalidated elements for updating the reachable id cache. The
+     * id record for (*, *) contains the head of the list. */
+    ecs_id_record_elem_t reachable_changed;
 };
 
 /* Get id record for id */
@@ -1046,6 +1065,19 @@ ecs_id_record_t* flecs_empty_table_iter(
     ecs_world_t *world,
     ecs_id_t id,
     ecs_table_cache_iter_t *out);
+
+/* Invalidate reachable id cache for e */
+void flecs_id_reachable_invalidate(
+    ecs_world_t *world,
+    ecs_entity_t e);
+
+/* Revalidate reachable id caches */
+void flecs_id_reachable_revalidate(
+    ecs_world_t *world);
+
+/* Cleanup all reachable id caches */
+void flecs_fini_id_reachable(
+    ecs_world_t *world);
 
 /* Cleanup all id records in world */
 void flecs_fini_id_records(
@@ -1145,6 +1177,12 @@ bool flecs_iter_next_instanced(
 ecs_table_t* flecs_table_find_or_create(
     ecs_world_t *world,
     const ecs_ids_t *type);
+
+/* Same as flecs_table_find_or_create, but with preprovisioned type vector */
+ecs_table_t* flecs_table_find_or_create_w_vector(
+    ecs_world_t *world,
+    const ecs_ids_t *ids,
+    ecs_vector_t *vec);
 
 /* Initialize columns for data */
 void flecs_table_init_data(
@@ -2327,11 +2365,16 @@ void init_storage_table(
         table->storage_ids = ecs_vector_first(type, ecs_id_t);
     }
 
-    if (acyclic_ids.count && acyclic_ids.count != count) {
-        table->acyclic_table = flecs_table_find_or_create(world, &acyclic_ids);
-        table->acyclic_table->refcount ++;
+    if (acyclic_ids.count) {
+        if (acyclic_ids.count != count) {
+            table->acyclic_table = flecs_table_find_or_create(
+                world, &acyclic_ids);
+            table->acyclic_table->refcount ++;
+        } else {
+            table->acyclic_table = table;
+        }
     } else {
-        table->acyclic_table = table;
+        table->acyclic_table = NULL;
     }
 
     if (storage_ids.array != array) {
@@ -5450,13 +5493,19 @@ void commit(
         }        
     }
 
+    ecs_flags32_t flags = ECS_RECORD_TO_ROW_FLAGS(record->row);
+
     /* If the entity is being watched, it is being monitored for changes and
      * requires rematching systems when components are added or removed. This
      * ensures that systems that rely on components from containers or prefabs
      * update the matched tables when the application adds or removes a 
      * component from, for example, a container. */
-    if (record->row & ECS_ROW_FLAGS_MASK) {
+    if (flags) {
         update_component_monitors(world, &diff->added, &diff->removed);
+    }
+
+    if (flags & EcsEntityObservedAcyclic) {
+        flecs_id_reachable_invalidate(world, entity);
     }
 
     if ((!src_table || !src_table->type) && world->range_check_enabled) {
@@ -11596,6 +11645,9 @@ void ecs_qsort(
         ecs_os_memcpy(ECS_ELEM(base, size, j), tmp, size)
 
     QSORT(nitems, LESS, SWAP);
+
+    #undef SWAP
+    #undef LESS
 }
 
 
@@ -34386,6 +34438,9 @@ static
 void clean_tables(
     ecs_world_t *world)
 {
+    /* Cleanup reachable id caches as they can still hold claims on tables */
+    flecs_fini_id_reachable(world);
+
     int32_t i, count = flecs_sparse_count(&world->store.tables);
 
     /* Ensure that first table in sparse set has id 0. This is a dummy table
@@ -35769,6 +35824,9 @@ void ecs_run_aperiodic(
     }
     if (!flags || (flags & EcsAperiodicComponentMonitors)) {
         flecs_eval_component_monitors(world);
+    }
+    if (!flags || (flags & EcsAperiodicReachableCache)) {
+        flecs_id_reachable_revalidate(world);
     }
 }
 
@@ -43343,9 +43401,7 @@ ecs_table_t* find_or_create(
 {    
     ecs_poly_assert(world, ecs_world_t);   
 
-    /* Make sure array is ordered and does not contain duplicates */
     int32_t id_count = ids->count;
-
     if (!id_count) {
         return &world->store.root;
     }
@@ -44091,6 +44147,15 @@ ecs_table_t* flecs_table_find_or_create(
 {
     ecs_poly_assert(world, ecs_world_t);
     return find_or_create(world, ids, NULL);
+}
+
+ecs_table_t* flecs_table_find_or_create_w_vector(
+    ecs_world_t *world,
+    const ecs_ids_t *ids,
+    ecs_vector_t *vec)
+{
+    ecs_poly_assert(world, ecs_world_t);
+    return find_or_create(world, ids, vec);
 }
 
 void flecs_init_root_table(
@@ -47229,9 +47294,11 @@ void flecs_bootstrap(
     ecs_add_id(world, EcsChildOf, EcsDontInherit);
     ecs_add_id(world, ecs_id(EcsIdentifier), EcsDontInherit);
 
-    /* The (IsA, *) id record is used often in searches, so cache it */
+    /* Cache often used id records */
     world->idr_isa_wildcard = flecs_ensure_id_record(world, 
         ecs_pair(EcsIsA, EcsWildcard));
+    world->idr_wildcard_wildcard = flecs_ensure_id_record(world,
+        ecs_pair(EcsWildcard, EcsWildcard));
 
     ecs_trigger_init(world, &(ecs_trigger_desc_t) {
         .term = { 
@@ -47946,7 +48013,7 @@ ecs_entity_t ecs_new_from_path_w_sep(
 
 
 static
-ecs_id_record_elem_t* id_record_elem(
+ecs_id_record_elem_t* flecs_id_record_elem(
     ecs_id_record_t *head,
     ecs_id_record_elem_t *list,
     ecs_id_record_t *idr)
@@ -47955,24 +48022,24 @@ ecs_id_record_elem_t* id_record_elem(
 }
 
 static
-void id_record_elem_insert(
+void flecs_id_record_elem_insert(
     ecs_id_record_t *head,
     ecs_id_record_t *idr,
     ecs_id_record_elem_t *elem)
 {
-    ecs_id_record_elem_t *head_elem = id_record_elem(idr, elem, head);
+    ecs_id_record_elem_t *head_elem = flecs_id_record_elem(idr, elem, head);
     ecs_id_record_t *cur = head_elem->next;
     elem->next = cur;
     elem->prev = head;
     if (cur) {
-        ecs_id_record_elem_t *cur_elem = id_record_elem(idr, elem, cur);
+        ecs_id_record_elem_t *cur_elem = flecs_id_record_elem(idr, elem, cur);
         cur_elem->prev = idr;
     }
     head_elem->next = idr;
 }
 
 static
-void id_record_elem_remove(
+void flecs_id_record_elem_remove(
     ecs_id_record_t *idr,
     ecs_id_record_elem_t *elem)
 {
@@ -47980,16 +48047,16 @@ void id_record_elem_remove(
     ecs_id_record_t *next = elem->next;
     ecs_assert(prev != NULL, ECS_INTERNAL_ERROR, NULL);
 
-    ecs_id_record_elem_t *prev_elem = id_record_elem(idr, elem, prev);
+    ecs_id_record_elem_t *prev_elem = flecs_id_record_elem(idr, elem, prev);
     prev_elem->next = next;
     if (next) {
-        ecs_id_record_elem_t *next_elem = id_record_elem(idr, elem, next);
+        ecs_id_record_elem_t *next_elem = flecs_id_record_elem(idr, elem, next);
         next_elem->prev = prev;
     }
 }
 
 static
-void insert_id_elem(
+void flecs_insert_id_elem(
     ecs_world_t *world,
     ecs_id_record_t *idr,
     ecs_id_t wildcard)
@@ -48001,20 +48068,20 @@ void insert_id_elem(
     if (ECS_PAIR_SECOND(wildcard) == EcsWildcard) {
         ecs_assert(ECS_PAIR_FIRST(wildcard) != EcsWildcard, 
             ECS_INTERNAL_ERROR, NULL);
-        id_record_elem_insert(widr, idr, &idr->first);
+        flecs_id_record_elem_insert(widr, idr, &idr->first);
     } else {
         ecs_assert(ECS_PAIR_FIRST(wildcard) == EcsWildcard, 
             ECS_INTERNAL_ERROR, NULL);
-        id_record_elem_insert(widr, idr, &idr->second);
+        flecs_id_record_elem_insert(widr, idr, &idr->second);
 
         if (idr->flags & EcsIdAcyclic) {
-            id_record_elem_insert(widr, idr, &idr->acyclic);
+            flecs_id_record_elem_insert(widr, idr, &idr->acyclic);
         }
     }
 }
 
 static
-void remove_id_elem(
+void flecs_remove_id_elem(
     ecs_world_t *world,
     ecs_id_record_t *idr,
     ecs_id_t wildcard)
@@ -48028,20 +48095,45 @@ void remove_id_elem(
     if (ECS_PAIR_SECOND(wildcard) == EcsWildcard) {
         ecs_assert(ECS_PAIR_FIRST(wildcard) != EcsWildcard, 
             ECS_INTERNAL_ERROR, NULL);
-        id_record_elem_remove(idr, &idr->first);
+        flecs_id_record_elem_remove(idr, &idr->first);
     } else {
         ecs_assert(ECS_PAIR_FIRST(wildcard) == EcsWildcard, 
             ECS_INTERNAL_ERROR, NULL);
-        id_record_elem_remove(idr, &idr->second);
+        flecs_id_record_elem_remove(idr, &idr->second);
 
         if (idr->flags & EcsIdAcyclic) {
-            id_record_elem_remove(idr, &idr->acyclic);
+            flecs_id_record_elem_remove(idr, &idr->acyclic);
         }
     }
 }
 
 static
-ecs_id_record_t* new_id_record(
+void flecs_id_reachable_revalidate_target(
+    ecs_world_t *world,
+    ecs_id_record_t *idr);
+
+static
+bool flecs_id_reachable_valid(
+    ecs_id_record_t *idr)
+{
+    return idr->reachable_changed.prev == NULL;
+}
+
+static
+void flecs_id_reachable_cache_clean(
+    ecs_reachable_ids_t *cache)
+{
+    if (cache->table) {
+        cache->table = NULL;
+    }
+    if (cache->sources) {
+        ecs_os_free(cache->sources);
+        cache->sources = NULL;
+    }
+}
+
+static
+ecs_id_record_t* flecs_new_id_record(
     ecs_world_t *world,
     ecs_id_t id)
 {
@@ -48084,8 +48176,8 @@ ecs_id_record_t* new_id_record(
             /* If pair is not a wildcard, append it to wildcard lists. These 
              * allow for quickly enumerating all relations for an object, or all 
              * objecs for a relation. */
-            insert_id_elem(world, idr, ecs_pair(rel, EcsWildcard));
-            insert_id_elem(world, idr, ecs_pair(EcsWildcard, obj));
+            flecs_insert_id_elem(world, idr, ecs_pair(rel, EcsWildcard));
+            flecs_insert_id_elem(world, idr, ecs_pair(EcsWildcard, obj));
         }
     } else {
         rel = id & ECS_COMPONENT_MASK;
@@ -48150,9 +48242,25 @@ error:
     return NULL;
 }
 
+static
+void flecs_free_id_record_reachable(
+    ecs_id_record_t *idr)
+{
+    /* Free reachable id caches */
+    if (idr->reachable) {
+        ecs_map_iter_t it = ecs_map_iter(idr->reachable);
+        ecs_reachable_ids_t *elem;
+        while ((elem = ecs_map_next(&it, ecs_reachable_ids_t, 0))) {
+            flecs_id_reachable_cache_clean(elem);
+        }
+        ecs_map_free(idr->reachable);
+        idr->reachable = NULL;
+    }
+}
+
 /* Cleanup id index */
 static
-bool free_id_record(
+bool flecs_free_id_record(
     ecs_world_t *world,
     ecs_id_t id,
     ecs_id_record_t *idr)
@@ -48187,8 +48295,8 @@ bool free_id_record(
             if (!ecs_id_is_wildcard(id)) {
                 ecs_entity_t rel = ecs_pair_first(world, id);
                 ecs_entity_t obj = ECS_PAIR_SECOND(id);
-                remove_id_elem(world, idr, ecs_pair(rel, EcsWildcard));
-                remove_id_elem(world, idr, ecs_pair(EcsWildcard, obj));
+                flecs_remove_id_elem(world, idr, ecs_pair(rel, EcsWildcard));
+                flecs_remove_id_elem(world, idr, ecs_pair(EcsWildcard, obj));
             }
         }
 
@@ -48253,7 +48361,7 @@ ecs_id_record_t* flecs_ensure_id_record(
         ecs_id_record_t*, ecs_strip_generation(id));
     ecs_id_record_t *idr = idr_ptr[0];
     if (!idr) {
-        idr = new_id_record(world, id);
+        idr = flecs_new_id_record(world, id);
         idr_ptr = ecs_map_get(&world->id_index, 
             ecs_id_record_t*, ecs_strip_generation(id));
         ecs_assert(idr_ptr != NULL, ECS_INTERNAL_ERROR, NULL);
@@ -48280,7 +48388,7 @@ void flecs_remove_id_record(
     ecs_poly_assert(world, ecs_world_t);
 
     /* Free id record resources */
-    if (free_id_record(world, id, idr)) {
+    if (flecs_free_id_record(world, id, idr)) {
         /* Remove record from world index */
         ecs_map_remove(&world->id_index, ecs_strip_generation(id));
     }
@@ -48403,7 +48511,7 @@ void flecs_fini_id_records(
     ecs_id_record_t *idr;
     ecs_map_key_t key;
     while ((idr = ecs_map_next_ptr(&it, ecs_id_record_t*, &key))) {
-        free_id_record(world, key, idr);
+        flecs_free_id_record(world, key, idr);
     }
 
     ecs_map_fini(&world->id_index);
@@ -48445,5 +48553,364 @@ ecs_id_record_t* flecs_empty_table_iter(
 
     flecs_table_cache_empty_iter(&idr->cache, out);
     return idr;
+}
+
+static
+void flecs_id_reachable_cache_add(
+    ecs_map_t *map,
+    ecs_table_t *table,
+    ecs_entity_t target,
+    ecs_id_record_t *idr)
+{
+    ecs_entity_t r = ECS_PAIR_FIRST(idr->id);
+    ecs_id_t *ids = ecs_vector_first(table->type, ecs_id_t);
+    int32_t i, count = ecs_vector_count(table->type);
+
+    for (i = 0; i < count; i ++) {
+        ecs_id_t id = ids[i];
+        if (ecs_id_is_pair(id)) {
+            if (ECS_PAIR_FIRST(id) == r) {
+                /* Don't add the relation instances itself as this would bloat
+                 * the cache for deeply nested trees */
+                continue;
+            }
+        }
+        ecs_entity_t *source = ecs_map_ensure(map, ecs_entity_t, id);
+        if (!*source) {
+            *source = target;
+        }
+    }
+
+    /* Add ids to cache for nested instances of relation R */
+    ecs_table_t *acyclic_table = table->acyclic_table;
+    if (!acyclic_table) {
+        return;
+    }
+
+    if (!idr->reachable) {
+        return;
+    }
+
+    ecs_reachable_ids_t *cache = ecs_map_get(
+        idr->reachable, ecs_reachable_ids_t, acyclic_table->id);
+    if (!cache) {
+        return;
+    }
+
+    ids = ecs_vector_first(cache->table->type, ecs_id_t);
+    count = ecs_vector_count(cache->table->type);
+    for (i = 0; i < count; i ++) {
+        ecs_entity_t *source = ecs_map_ensure(map, ecs_entity_t, ids[i]);
+        if (!*source) {
+            *source = cache->sources[i];
+        }
+    }
+}
+
+static
+void flecs_id_reachable_cache_build(
+    ecs_world_t *world,
+    ecs_reachable_ids_t *cache,
+    ecs_map_t *map)
+{
+    flecs_id_reachable_cache_clean(cache);
+
+    /* Create sorted list of ids so we can create table for it */
+    int32_t i = 0, count = ecs_map_count(map);
+    if (!count) {
+        return;
+    }
+
+    ecs_vector_t *idv = ecs_vector_new(ecs_id_t, count);
+    ecs_vector_set_count(&idv, ecs_id_t, count);
+    ecs_id_t *ids = ecs_vector_first(idv, ecs_id_t);
+    ecs_entity_t *sources = ecs_os_malloc_n(ecs_entity_t, count);
+
+    ecs_map_iter_t mit = ecs_map_iter(map);
+    uint64_t key;
+    ecs_entity_t *elem;
+    while ((elem = ecs_map_next(&mit, ecs_entity_t, &key))) {
+        ids[i] = key;
+        sources[i] = *elem;
+        i ++;
+    }
+
+    ecs_id_t id_tmp;
+    ecs_entity_t source_tmp;
+
+    /* Sort ids so we can use the array to create a table for the cache. Use the
+     * QSORT macro as it lets us sort both id & source arrays. */
+    #define LESS(i, j) (ids[i] < ids[j])
+    #define SWAP(i, j) ( \
+        id_tmp = ids[i], \
+        ids[i] = ids[j], \
+        ids[j] = id_tmp, \
+        source_tmp = sources[i], \
+        sources[i] = sources[j], \
+        sources[j] = source_tmp)
+
+    QSORT(count, LESS, SWAP);
+
+    #undef SWAP
+    #undef LESS
+
+    /* Create table for cache with reachable ids. Using a table vs. a map has
+     * advantages, as the list of ids is only stored once. The reason we create
+     * the map first vs. finding a table by traversing the table graph is that
+     * with this approach we only create one table, whereas traversing the graph
+     * could (lazily) create as many tables as there are reachable ids */
+    ecs_ids_t ids_array = { .array = ids, .count = count };
+    cache->table = flecs_table_find_or_create_w_vector(world, &ids_array, idv);
+    cache->sources = sources;
+}
+
+static
+void flecs_id_reachable_revalidate_cache(
+    ecs_world_t *world,
+    ecs_reachable_ids_t *cache,
+    ecs_table_t *acyclic_table,
+    ecs_id_record_t *idr)
+{
+    ecs_map_t map = {0};
+    ecs_map_init(&map, ecs_entity_t, 1);
+
+    const ecs_table_record_t *tr = ecs_table_cache_get(
+        &idr->cache, acyclic_table);
+    ecs_assert(tr != NULL, ECS_INTERNAL_ERROR, NULL);
+
+    ecs_id_t *ids = ecs_vector_first(acyclic_table->type, ecs_id_t);
+    int32_t i = tr->column, end = i + tr->count;
+    for (; i < end; i ++) {
+        ecs_id_t id = ids[i];
+        ecs_entity_t target = ecs_pair_second(world, id);
+        ecs_record_t *record = ecs_eis_get(world, target);
+        ecs_table_t *table;
+        if (record && (table = record->table)) {
+            flecs_id_reachable_cache_add(&map, table, target, idr);
+        }
+    }
+
+    /* Build the cache from the map */
+    flecs_id_reachable_cache_build(world, cache, &map);
+
+    ecs_map_fini(&map);
+}
+
+static
+void flecs_id_reachable_revalidate_target(
+    ecs_world_t *world,
+    ecs_id_record_t *idr)
+{
+    ecs_assert(ECS_PAIR_FIRST(idr->id) == EcsWildcard, 
+        ECS_INTERNAL_ERROR, NULL);
+
+    /* Find all acyclic relations R for entity in id record (*, E) */
+    while ((idr = idr->acyclic.next)) {
+        ecs_entity_t r = ecs_pair_first(world, idr->id);
+
+        /* Iterate tables to find all acyclic tables. The reachable cache is
+         * only stored on acyclic tables to reduce redundancy */
+        ecs_table_cache_iter_t it;
+        if (!flecs_table_cache_iter(&idr->cache, &it)) {
+            continue; /* id record contains no non-empty tables */
+        }
+
+        ecs_table_record_t *tr;
+        while ((tr = flecs_table_cache_next(&it, ecs_table_record_t))) {
+            ecs_table_t *table = tr->hdr.table;
+            ecs_table_t *acyclic_table = table->acyclic_table;
+            ecs_assert(acyclic_table != NULL, ECS_INTERNAL_ERROR, NULL);
+
+            /* Find reachable id cache record for relation R and acyclic
+             * table in id record (R, *) */
+            ecs_id_record_t *idr_r_wildcard = flecs_get_id_record(world,
+                ecs_pair(r, EcsWildcard));
+            ecs_assert(idr_r_wildcard != NULL, ECS_INTERNAL_ERROR, NULL);
+
+            /* Make sure table index for cache exists on record */
+            ecs_map_t *cache_for_tables = idr_r_wildcard->reachable;
+            if (!cache_for_tables) {
+                cache_for_tables = idr_r_wildcard->reachable = 
+                    ecs_map_new(ecs_reachable_ids_t, 1);
+            }
+
+            /* Make sure cache for acyclic table exists */
+            ecs_reachable_ids_t *cache = ecs_map_ensure(cache_for_tables,
+                ecs_reachable_ids_t, acyclic_table->id);
+            if (cache->counter != world->reachable_counter) {
+                /* Multiple tables can share the same acyclic table. 
+                 * Only regenerate cache for acyclic table once */
+                cache->counter = world->reachable_counter;
+
+                /* Rebuild cache for acyclic relation instances of R */
+                flecs_id_reachable_revalidate_cache(world, cache, 
+                    acyclic_table, idr_r_wildcard);
+
+                /* Revalidate the cache for children */
+                ecs_vector_t *rsv = table->data.record_ptrs;
+                ecs_record_t **rs = ecs_vector_first(rsv, ecs_record_t*);
+                int32_t i, count = ecs_vector_count(rsv);
+                ecs_entity_t *entities = ecs_vector_first(
+                    table->data.entities, ecs_entity_t);
+                for (i = 0; i < count; i ++) {
+                    ecs_record_t *record = rs[i];
+                    if (!record) {
+                        continue; /* Unusual, but can happen during bulk new */
+                    }
+
+                    /* Traverse children marked with EcsEntityObservedAcyclic
+                     * to skip entities not used with acyclic relation */
+                    ecs_flags32_t flags = ECS_RECORD_TO_ROW_FLAGS(record->row);
+                    if (flags & EcsEntityObservedAcyclic) {
+                        ecs_id_record_t *idr_child = flecs_get_id_record(
+                            world, ecs_pair(EcsWildcard, entities[i]));
+                        flecs_id_reachable_revalidate_target(
+                            world, idr_child);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static
+bool flecs_id_reachable_has_dirty_parent(
+    ecs_world_t *world,
+    ecs_entity_t entity)
+{
+    ecs_record_t *r = ecs_eis_get(world, entity);
+    ecs_table_t *table;
+    if (!r || !(table = r->table)) {
+        return false;
+    }
+
+    /* Only check acyclic relations */
+    ecs_table_t *acyclic_table = table->acyclic_table;
+    if (!acyclic_table) {
+        return false;
+    }
+
+    ecs_id_t *ids = ecs_vector_first(acyclic_table->type, ecs_id_t);
+    int32_t i, count = ecs_vector_count(acyclic_table->type);
+
+    for (i = 0; i < count; i ++) {
+        ecs_id_t id = ids[i];
+        ecs_entity_t target = ecs_pair_second(world, id);
+        ecs_id_record_t *idr = flecs_get_id_record(world, 
+            ecs_pair(EcsWildcard, target));
+        if (idr->reachable_counter == world->reachable_counter) {
+            /* Path to parent was already checked and marked as dirty */
+            return true;
+        }
+
+        if (idr->reachable_changed.prev) {
+            /* If the record is in th dirty list, the parent is dirty */
+            return true;
+        }
+        
+        /* Keep searching upwards to find dirty parents */
+        if (flecs_id_reachable_has_dirty_parent(world, target)) {
+            /* If a dirty parent was found, mark this path as traversed and 
+             * dirty so we don't have to keep doing it for subsequent dirty
+             * child records. */
+            idr->reachable_counter = world->reachable_counter;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void flecs_id_reachable_invalidate(
+    ecs_world_t *world,
+    ecs_entity_t e)
+{
+    ecs_poly_assert(world, ecs_world_t);
+    ecs_assert(e != 0, ECS_INTERNAL_ERROR, NULL);
+
+    ecs_id_record_t *idr = flecs_get_id_record(world, ecs_pair(EcsWildcard, e));
+    if (!idr) {
+        /* Entity is not used as second element of pair */
+        return;
+    }
+
+    /* Append element to list to keep track of for which entities the reachable
+     * id cache needs to be updated. Ensure to append only once per entitiy. */
+    if (!flecs_id_reachable_valid(idr)) {
+        return; /* Element was already marked for invalidation */
+    }
+
+    flecs_id_record_elem_insert(world->idr_wildcard_wildcard, idr, 
+        &idr->reachable_changed);
+}
+
+void flecs_id_reachable_revalidate(
+    ecs_world_t *world)
+{
+    ecs_poly_assert(world, ecs_world_t);
+
+    ecs_id_record_elem_t *head = 
+        &world->idr_wildcard_wildcard->reachable_changed;
+    ecs_id_record_t *cur, *next = head->next;
+
+    if (!next) {
+        return;
+    }
+
+    world->reachable_counter ++;
+    
+    /* First remove invalidated child records of another invalidated entity from 
+     * the list. This ensures that each entity is only processed once, as an 
+     * invalidated parent already iterates and updates all of its children */
+    while ((cur = next)) {
+        ecs_assert(cur->reachable_counter != world->reachable_counter, 
+            ECS_INTERNAL_ERROR, NULL);
+        ecs_entity_t e = ecs_pair_second(world, cur->id);
+        ecs_assert(e != 0, ECS_INTERNAL_ERROR, NULL);
+
+        next = cur->reachable_changed.next;
+
+        if (flecs_id_reachable_has_dirty_parent(world, e)) {
+            flecs_id_record_elem_remove(cur, &cur->reachable_changed);
+        }
+    }
+
+    next = head->next;
+    head->next = NULL;
+
+    /* Now iterate remaining invalidated records to rebuild reachable caches */
+    while ((cur = next)) {
+        flecs_id_reachable_revalidate_target(world, cur);
+
+        next = cur->reachable_changed.next;
+
+        /* No need to call remove() as the entire list will be cleaned up */
+        cur->reachable_changed.prev = NULL;
+        cur->reachable_changed.next = NULL;
+    }
+}
+
+void flecs_fini_id_reachable(
+    ecs_world_t *world)
+{
+    ecs_table_cache_iter_t it;
+    if (flecs_table_iter(world, EcsAcyclic, &it)) {
+        /* Find all Acyclic relations */
+        ecs_table_record_t *tr;
+        while ((tr = flecs_table_cache_next(&it, ecs_table_record_t))) {
+            ecs_table_t *table = tr->hdr.table;
+            ecs_vector_t *entitiesv = table->data.entities;
+            ecs_entity_t *entities = ecs_vector_first(entitiesv, ecs_entity_t);
+            int32_t i, count = ecs_vector_count(entitiesv);
+            for (i = 0; i < count; i ++) {
+                ecs_entity_t r = entities[i];
+                ecs_id_record_t *idr = flecs_get_id_record(world, 
+                    ecs_pair(r, EcsWildcard));
+                if (idr) {
+                    flecs_free_id_record_reachable(idr);
+                }
+            }
+        }
+    }
 }
 
