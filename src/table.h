@@ -11,6 +11,12 @@ ecs_table_t* flecs_table_find_or_create(
     ecs_world_t *world,
     const ecs_ids_t *type);
 
+/* Same as flecs_table_find_or_create, but with preprovisioned type vector */
+ecs_table_t* flecs_table_find_or_create_w_vector(
+    ecs_world_t *world,
+    const ecs_ids_t *ids,
+    ecs_vector_t *vec);
+
 /* Initialize columns for data */
 void flecs_table_init_data(
     ecs_world_t *world,

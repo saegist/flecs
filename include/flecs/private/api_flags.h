@@ -125,6 +125,7 @@ extern "C" {
 
 #define EcsAperiodicEmptyTableEvents   (1u << 1u)  /* Process pending empty table events */
 #define EcsAperiodicComponentMonitors  (1u << 2u)  /* Process component monitors */
+#define EcsAperiodicReachableCache     (1u << 4u)  /* Revalidate reachable cache */
 
 #ifdef __cplusplus
 }

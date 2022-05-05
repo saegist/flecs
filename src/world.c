@@ -417,6 +417,9 @@ static
 void clean_tables(
     ecs_world_t *world)
 {
+    /* Cleanup reachable id caches as they can still hold claims on tables */
+    flecs_fini_id_reachable(world);
+
     int32_t i, count = flecs_sparse_count(&world->store.tables);
 
     /* Ensure that first table in sparse set has id 0. This is a dummy table
@@ -1800,6 +1803,9 @@ void ecs_run_aperiodic(
     }
     if (!flags || (flags & EcsAperiodicComponentMonitors)) {
         flecs_eval_component_monitors(world);
+    }
+    if (!flags || (flags & EcsAperiodicReachableCache)) {
+        flecs_id_reachable_revalidate(world);
     }
 }
 

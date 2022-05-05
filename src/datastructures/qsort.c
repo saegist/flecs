@@ -18,4 +18,7 @@ void ecs_qsort(
         ecs_os_memcpy(ECS_ELEM(base, size, j), tmp, size)
 
     QSORT(nitems, LESS, SWAP);
+
+    #undef SWAP
+    #undef LESS
 }

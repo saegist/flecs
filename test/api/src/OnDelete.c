@@ -212,6 +212,30 @@ void OnDelete_on_delete_object_delete() {
     ecs_fini(world);
 }
 
+void OnDelete_on_delete_object_delete_2_levels_w_tag() {
+    ecs_world_t *world = ecs_mini();
+
+    ECS_TAG(world, Tag);
+
+    ecs_entity_t root = ecs_new_id(world);
+    ecs_entity_t e1 = ecs_new_w_pair(world, EcsChildOf, root);
+    ecs_entity_t e2 = ecs_new_w_pair(world, EcsChildOf, e1);
+    ecs_entity_t e3 = ecs_new_w_pair(world, EcsChildOf, root);
+
+    ecs_add(world, e1, Tag);
+
+    ecs_force_aperiodic(world);
+
+    ecs_delete(world, root);
+
+    test_assert(!ecs_is_alive(world, root));
+    test_assert(!ecs_is_alive(world, e1));
+    test_assert(!ecs_is_alive(world, e2));
+    test_assert(!ecs_is_alive(world, e3));
+
+    ecs_fini(world);
+}
+
 void OnDelete_on_delete_object_mixed() {
     ecs_world_t *world = ecs_init();
 

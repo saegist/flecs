@@ -853,13 +853,19 @@ void commit(
         }        
     }
 
+    ecs_flags32_t flags = ECS_RECORD_TO_ROW_FLAGS(record->row);
+
     /* If the entity is being watched, it is being monitored for changes and
      * requires rematching systems when components are added or removed. This
      * ensures that systems that rely on components from containers or prefabs
      * update the matched tables when the application adds or removes a 
      * component from, for example, a container. */
-    if (record->row & ECS_ROW_FLAGS_MASK) {
+    if (flags) {
         update_component_monitors(world, &diff->added, &diff->removed);
+    }
+
+    if (flags & EcsEntityObservedAcyclic) {
+        flecs_id_reachable_invalidate(world, entity);
     }
 
     if ((!src_table || !src_table->type) && world->range_check_enabled) {
