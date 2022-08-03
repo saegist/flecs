@@ -46,6 +46,10 @@ struct ecs_id_record_t {
     ecs_id_record_elem_t first;   /* (R, *) */
     ecs_id_record_elem_t second;  /* (*, O) */
     ecs_id_record_elem_t acyclic; /* (*, O) with only acyclic relationships */
+
+    /* Reachable cache */
+    ecs_reachable_list_t *reachable;
+    uint32_t reachable_generation;
 };
 
 /* Get id record for id */

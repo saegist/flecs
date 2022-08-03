@@ -885,6 +885,10 @@ void flecs_commit(
         update_component_monitors(world, &diff->added, &diff->removed);
     }
 
+    if (record->row & EcsEntityObservedAcyclic) {
+        flecs_reachable_invalidate(world, entity);
+    }
+
     if ((!src_table || !src_table->type.count) && world->range_check_enabled) {
         ecs_check(!world->info.max_id || entity <= world->info.max_id, 
             ECS_OUT_OF_RANGE, 0);
