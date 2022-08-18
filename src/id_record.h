@@ -46,6 +46,9 @@ struct ecs_id_record_t {
     ecs_id_record_elem_t first;   /* (R, *) */
     ecs_id_record_elem_t second;  /* (*, O) */
     ecs_id_record_elem_t acyclic; /* (*, O) with only acyclic relationships */
+
+    /* For traversal caches */
+    int32_t generation;
 };
 
 /* Get id record for id */

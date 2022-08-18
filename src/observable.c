@@ -44,45 +44,34 @@ void notify_subset(
     /* Iterate acyclic relationships */
     ecs_id_record_t *cur = idr;
     while ((cur = cur->acyclic.next)) {
-        flecs_process_pending_tables(world);
-
-        ecs_table_cache_iter_t idt;
-        if (!flecs_table_cache_iter(&cur->cache, &idt)) {
-            return;
-        }
-
-        ecs_entity_t rel = ECS_PAIR_FIRST(cur->id);
-        const ecs_table_record_t *tr;
-        while ((tr = flecs_table_cache_next(&idt, ecs_table_record_t))) {
-            ecs_table_t *table = tr->hdr.table;
-
-            int32_t e, entity_count = ecs_table_count(table);
-            it->table = table;
-            it->other_table = NULL;
-            it->offset = 0;
-            it->count = entity_count;
-
-            /* Treat as new event as this could invoke observers again for
-            * different tables. */
-            world->event_id ++;
-
-            flecs_set_observers_notify(it, observable, ids, event,
-                ecs_pair(rel, EcsWildcard));
-
-            if (!table->observed_count) {
+        ecs_entity_t trav = ECS_PAIR_FIRST(cur->id);
+        int32_t i, count = ids->count;
+        for (i = 0; i < count; i ++) {
+            ecs_id_t with = ids->array[i];
+            ecs_type_t one_id = { .array = &with, .count = 1};
+            const ecs_trav_down_t *cache = flecs_trav_entity_down(
+                world, trav, entity, with);
+            if (!cache) {
                 continue;
             }
 
-            ecs_entity_t *entities = ecs_vec_first(&table->data.entities);
-            ecs_record_t **records = ecs_vec_first(&table->data.records);
-
-            for (e = 0; e < entity_count; e ++) {
-                uint32_t flags = ECS_RECORD_TO_ROW_FLAGS(records[e]->row);
-                if (flags & EcsEntityObservedAcyclic) {
-                    /* Only notify for entities that are used in pairs with
-                     * acyclic relationships */
-                    notify_subset(world, it, observable, entities[e], event, ids);
+            ecs_vector_t *velems = cache->elems;
+            int32_t t, elem_count = ecs_vector_count(velems);
+            ecs_trav_elem_t *elems = ecs_vector_first(velems, ecs_trav_elem_t);
+            for (t = 0; t < elem_count; t ++) {
+                ecs_table_t *table = elems[t].table;
+                it->count = ecs_table_count(table);
+                if (!it->count) {
+                    continue;
                 }
+
+                it->table = table;
+                it->other_table = NULL;
+                it->offset = 0;
+
+                world->event_id ++;
+                flecs_set_observers_notify(it, observable, &one_id, event,
+                    ecs_pair(trav, EcsWildcard), elems[t].source);
             }
         }
     }
@@ -149,7 +138,7 @@ void flecs_emit(
         flecs_observers_notify(&it, observable, ids, event);
     } else {
         flecs_set_observers_notify(&it, observable, ids, event, 
-            ecs_pair(relationship, EcsWildcard));
+            ecs_pair(relationship, EcsWildcard), 0);
     }
 
     if (count && !desc->table_event) {

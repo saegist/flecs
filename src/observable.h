@@ -23,7 +23,8 @@ void flecs_set_observers_notify(
     ecs_observable_t *observable,
     const ecs_type_t *ids,
     ecs_entity_t event,
-    ecs_id_t set_id);
+    ecs_id_t set_id,
+    ecs_entity_t src);
 
 bool flecs_check_observers_for_event(
     const ecs_poly_t *world,

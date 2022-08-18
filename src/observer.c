@@ -725,7 +725,8 @@ static
 void flecs_notify_set_observers(
     ecs_world_t *world,
     ecs_iter_t *it,
-    const ecs_map_t *observers)
+    const ecs_map_t *observers,
+    ecs_entity_t src)
 {
     ecs_assert(observers != NULL, ECS_INTERNAL_ERROR, NULL);
     ecs_assert(it->count != 0, ECS_INTERNAL_ERROR, NULL);
@@ -745,7 +746,7 @@ void flecs_notify_set_observers(
             continue;
         }
 
-        ecs_entity_t src = it->entities[0];
+        ecs_entity_t prev_src = it->entities[0];
         int32_t i, count = it->count;
         ecs_filter_t *filter = &observer->filter;
         ecs_term_t *term = &filter->terms[0];
@@ -769,33 +770,37 @@ void flecs_notify_set_observers(
             it->count = 1;
         }
 
-        if (flecs_term_match_table(world, term, it->table, it->ids, 
-            it->columns, it->sources, NULL, true, it->flags))
-        {
-            if (!it->sources[0]) {
-                /* Do not match owned components */
+        if (src) {
+            it->sources[0] = src;
+        } else {
+            if (!flecs_term_match_table(world, term, it->table, it->ids, 
+                it->columns, it->sources, NULL, true, it->flags))
+            {
                 continue;
             }
-
-            /* Triggers for supersets can be instanced */
-            bool instanced = filter->flags & EcsFilterIsInstanced;
-            bool is_filter = ECS_BIT_IS_SET(it->flags, EcsIterIsFilter);
-            if (it->count == 1 || instanced || is_filter || !it->sizes[0]) {
-                ECS_BIT_COND(it->flags, EcsIterIsInstanced, instanced);
-                flecs_uni_observer_builtin_run(observer, it);
-                ECS_BIT_CLEAR(it->flags, EcsIterIsInstanced);
-            } else {
-                ecs_entity_t *entities = it->entities;
-                it->count = 1;
-                for (i = 0; i < count; i ++) {
-                    it->entities = &entities[i];
-                    flecs_uni_observer_builtin_run(observer, it);
-                }
-                it->entities = entities;
+            if (!it->sources[0]) {
+                continue;
             }
         }
 
-        it->entities[0] = src;
+        /* Triggers for supersets can be instanced */
+        bool instanced = filter->flags & EcsFilterIsInstanced;
+        bool is_filter = ECS_BIT_IS_SET(it->flags, EcsIterIsFilter);
+        if (it->count == 1 || instanced || is_filter || !it->sizes[0]) {
+            ECS_BIT_COND(it->flags, EcsIterIsInstanced, instanced);
+            flecs_uni_observer_builtin_run(observer, it);
+            ECS_BIT_CLEAR(it->flags, EcsIterIsInstanced);
+        } else {
+            ecs_entity_t *entities = it->entities;
+            it->count = 1;
+            for (i = 0; i < count; i ++) {
+                it->entities = &entities[i];
+                flecs_uni_observer_builtin_run(observer, it);
+            }
+            it->entities = entities;
+        }
+
+        it->entities[0] = prev_src;
         it->count = count;            
     }
 }
@@ -833,12 +838,13 @@ void flecs_notify_set_observers_for_id(
     const ecs_map_t *evt,
     ecs_iter_t *it,
     bool *iter_set,
-    ecs_id_t set_id)
+    ecs_id_t set_id,
+    ecs_entity_t src)
 {
     const ecs_event_id_record_t *idt = flecs_get_observers_for_id(evt, set_id);
     if (idt && ecs_map_is_initialized(&idt->set_observers)) {
         flecs_init_observer_iter(it, iter_set);
-        flecs_notify_set_observers(world, it, &idt->set_observers);
+        flecs_notify_set_observers(world, it, &idt->set_observers, src);
     }
 }
 
@@ -1005,7 +1011,8 @@ void flecs_set_observers_notify(
     ecs_observable_t *observable,
     const ecs_type_t *ids,
     ecs_entity_t event,
-    ecs_id_t set_id)
+    ecs_id_t set_id,
+    ecs_entity_t src)
 {
     ecs_assert(ids != NULL && ids->count != 0, ECS_INTERNAL_ERROR, NULL);
     ecs_assert(ids->array != NULL, ECS_INTERNAL_ERROR, NULL);
@@ -1029,7 +1036,8 @@ void flecs_set_observers_notify(
 
             it->event_id = id;
 
-            flecs_notify_set_observers_for_id(world, evt, it, &iter_set, set_id);
+            flecs_notify_set_observers_for_id(
+                world, evt, it, &iter_set, set_id, src);
 
             if (iter_set) {
                 ecs_iter_fini(it);

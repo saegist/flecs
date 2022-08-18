@@ -122,26 +122,27 @@ ecs_id_record_t* flecs_id_record_new(
 
     idr->id = id;
     idr->refcount = 1;
+    idr->generation = 1;
 
     bool is_wildcard = ecs_id_is_wildcard(id);
 
-    ecs_entity_t rel = 0, obj = 0, role = id & ECS_ID_FLAGS_MASK;
+    ecs_entity_t rel = 0, tgt = 0, role = id & ECS_ID_FLAGS_MASK;
     if (ECS_HAS_ID_FLAG(id, PAIR)) {
         rel = ecs_pair_first(world, id);
         ecs_assert(rel != 0, ECS_INTERNAL_ERROR, NULL);
 
-        /* Relationship object can be 0, as tables without a ChildOf relationship are
+        /* Relationship tgtect can be 0, as tables without a ChildOf relationship are
          * added to the (ChildOf, 0) id record */
-        obj = ECS_PAIR_SECOND(id);
-        if (obj) {
-            obj = ecs_get_alive(world, obj);
-            ecs_assert(obj != 0, ECS_INTERNAL_ERROR, NULL);
+        tgt = ECS_PAIR_SECOND(id);
+        if (tgt) {
+            tgt = ecs_get_alive(world, tgt);
+            ecs_assert(tgt != 0, ECS_INTERNAL_ERROR, NULL);
         }
 
         /* Check constraints */
-        if (obj && !ecs_id_is_wildcard(obj)) {
+        if (tgt && !ecs_id_is_wildcard(tgt)) {
             ecs_entity_t oneof = flecs_get_oneof(world, rel);
-            ecs_check( !oneof || ecs_has_pair(world, obj, EcsChildOf, oneof),
+            ecs_check( !oneof || ecs_has_pair(world, tgt, EcsChildOf, oneof),
                 ECS_CONSTRAINT_VIOLATED, NULL);
             (void)oneof;
         }
@@ -157,7 +158,7 @@ ecs_id_record_t* flecs_id_record_new(
              * allow for quickly enumerating all relationships for an object, or all 
              * objecs for a relationship. */
             flecs_insert_id_elem(world, idr, ecs_pair(rel, EcsWildcard), idr_r);
-            flecs_insert_id_elem(world, idr, ecs_pair(EcsWildcard, obj), NULL);
+            flecs_insert_id_elem(world, idr, ecs_pair(EcsWildcard, tgt), NULL);
 
             if (rel == EcsUnion) {
                 idr->flags |= EcsIdUnion;
@@ -173,8 +174,8 @@ ecs_id_record_t* flecs_id_record_new(
     if (!is_wildcard && (!role || ECS_IS_PAIR(id))) {
         if (!(idr->flags & EcsIdTag)) {
             const ecs_type_info_t *ti = flecs_type_info_get(world, rel);
-            if (!ti && obj) {
-                ti = flecs_type_info_get(world, obj);
+            if (!ti && tgt) {
+                ti = flecs_type_info_get(world, tgt);
             }
             idr->type_info = ti;
         }
@@ -186,13 +187,13 @@ ecs_id_record_t* flecs_id_record_new(
 
     /* Flag for OnDelete policies */
     flecs_add_flag(world, rel, EcsEntityObservedId);
-    if (obj) {
+    if (tgt) {
         /* Flag for OnDeleteTarget policies */
-        flecs_add_flag(world, obj, EcsEntityObservedTarget);
+        flecs_add_flag(world, tgt, EcsEntityObservedTarget);
         if (ecs_has_id(world, rel, EcsAcyclic)) {
-            /* Flag used to determine if object should be traversed when
+            /* Flag used to determine if tgtect should be traversed when
              * propagating events or with super/subset queries */
-            flecs_add_flag(world, obj, EcsEntityObservedAcyclic);
+            flecs_add_flag(world, tgt, EcsEntityObservedAcyclic);
         }
     }
 
@@ -264,13 +265,15 @@ void flecs_id_record_free(
 
     if (ECS_IS_PAIR(id)) {
         ecs_entity_t rel = ecs_pair_first(world, id);
-        ecs_entity_t obj = ECS_PAIR_SECOND(id);
+        ecs_entity_t tgt = ECS_PAIR_SECOND(id);
         if (!ecs_id_is_wildcard(id)) {
             if (ECS_PAIR_FIRST(id) != EcsFlag) {
                 /* If id is not a wildcard, remove it from the wildcard lists */
                 flecs_remove_id_elem(idr, ecs_pair(rel, EcsWildcard));
-                flecs_remove_id_elem(idr, ecs_pair(EcsWildcard, obj));
+                flecs_remove_id_elem(idr, ecs_pair(EcsWildcard, tgt));
             }
+
+            flecs_trav_entity_clear(world, rel, tgt);
         } else {
             ecs_log_push_2();
 

@@ -1655,7 +1655,8 @@
                "on_set_superset_auto_override",
                "not_only",
                "not_only_w_base",
-               "not_only_w_base_no_match"
+               "not_only_w_base_no_match",
+               "propagate_w_union_pair"
            ]
         }, {
             "id": "Observer",

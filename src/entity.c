@@ -922,6 +922,9 @@ void flecs_commit(
         src_table = record->table;
         row_flags = record->row & ECS_ROW_FLAGS_MASK;
         observed = row_flags & EcsEntityObservedAcyclic;
+        if (observed) {
+            flecs_trav_entity_modified(world, entity);
+        }
     }
 
     if (src_table == dst_table) {

@@ -1589,6 +1589,7 @@ void Trigger_on_set_superset_auto_override(void);
 void Trigger_not_only(void);
 void Trigger_not_only_w_base(void);
 void Trigger_not_only_w_base_no_match(void);
+void Trigger_propagate_w_union_pair(void);
 
 // Testsuite 'Observer'
 void Observer_2_terms_w_on_add(void);
@@ -8353,6 +8354,10 @@ bake_test_case Trigger_testcases[] = {
     {
         "not_only_w_base_no_match",
         Trigger_not_only_w_base_no_match
+    },
+    {
+        "propagate_w_union_pair",
+        Trigger_propagate_w_union_pair
     }
 };
 
@@ -10970,7 +10975,7 @@ static bake_test_suite suites[] = {
         "Trigger",
         NULL,
         NULL,
-        112,
+        113,
         Trigger_testcases
     },
     {

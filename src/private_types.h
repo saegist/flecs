@@ -21,6 +21,7 @@
 #include "datastructures/stack_allocator.h"
 #include "flecs/private/bitset.h"
 #include "flecs/private/switch_list.h"
+#include "trav_cache.h"
 
 /* Used in id records to keep track of entities used with id flags */
 extern const ecs_entity_t EcsFlag;
@@ -491,6 +492,9 @@ struct ecs_stage_t {
     /* Thread specific allocators */
     ecs_stage_allocators_t allocators;
     ecs_allocator_t allocator;
+
+    /* Relationship traversal cache */
+    ecs_trav_cache_t trav;
 };
 
 /* Component monitor */
