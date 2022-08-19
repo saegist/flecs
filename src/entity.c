@@ -769,25 +769,26 @@ ecs_record_t* flecs_new_entity(
     bool construct,
     bool notify_on_set)
 {
-    int32_t new_row;
-
     if (!record) {
         record = flecs_entities_ensure(world, entity);
     }
 
-    new_row = flecs_table_append(world, new_table, entity, record, 
-        construct, true);
-
+    ecs_flags32_t row_flags = record->row & ECS_ROW_FLAGS_MASK;
+    int32_t new_row = flecs_table_append(
+        world, new_table, entity, record, construct, true);
     record->table = new_table;
-    record->row = ECS_ROW_TO_RECORD(new_row, record->row & ECS_ROW_FLAGS_MASK);
+    record->row = ECS_ROW_TO_RECORD(new_row, row_flags);
 
     ecs_data_t *new_data = &new_table->data;
     ecs_assert(ecs_vec_count(&new_data[0].entities) > new_row, 
         ECS_INTERNAL_ERROR, NULL);
     (void)new_data;
 
-    ecs_flags32_t flags = new_table->flags;
+    if (row_flags & EcsEntityObservedAcyclic) {
+        flecs_trav_entity_modified(world, entity);
+    }
 
+    ecs_flags32_t flags = new_table->flags;
     if (flags & EcsTableHasAddActions) {
         flecs_notify_on_add(
             world, new_table, NULL, new_row, 1, diff, notify_on_set);       
@@ -807,7 +808,8 @@ void flecs_move_entity(
     bool notify_on_set)
 {
     ecs_table_t *src_table = record->table;
-    int32_t src_row = ECS_RECORD_TO_ROW(record->row);
+    uint32_t row = record->row;
+    int32_t src_row = ECS_RECORD_TO_ROW(row);
     
     ecs_assert(src_table != NULL, ECS_INTERNAL_ERROR, NULL);
     ecs_assert(src_table != dst_table, ECS_INTERNAL_ERROR, NULL);
@@ -836,6 +838,10 @@ void flecs_move_entity(
     
     flecs_table_delete(world, src_table, src_row, false);
 
+    if (row & EcsEntityObservedAcyclic) {
+        flecs_trav_entity_modified(world, entity);
+    }
+
     /* If components were added, invoke add actions */
     ecs_flags32_t dst_flags = dst_table->flags;
     if (src_table != dst_table || diff->added.count) {
@@ -852,18 +858,24 @@ error:
 static
 void flecs_delete_entity(
     ecs_world_t *world,
+    ecs_entity_t entity,
     ecs_record_t *record,
     ecs_table_diff_t *diff)
 {    
     ecs_table_t *table = record->table;
-    int32_t row = ECS_RECORD_TO_ROW(record->row);
+    uint32_t row = record->row;
+    int32_t src_row = ECS_RECORD_TO_ROW(record->row);
 
     /* Invoke remove actions before deleting */
     if (table->flags & EcsTableHasRemoveActions) {   
-        flecs_notify_on_remove(world, table, NULL, row, 1, diff);
+        flecs_notify_on_remove(world, table, NULL, src_row, 1, diff);
     }
 
-    flecs_table_delete(world, table, row, true);
+    flecs_table_delete(world, table, src_row, true);
+
+    if (row & EcsEntityObservedAcyclic) {
+        flecs_trav_entity_modified(world, entity);
+    }
 }
 
 /* Updating component monitors is a relatively expensive operation that only
@@ -922,9 +934,6 @@ void flecs_commit(
         src_table = record->table;
         row_flags = record->row & ECS_ROW_FLAGS_MASK;
         observed = row_flags & EcsEntityObservedAcyclic;
-        if (observed) {
-            flecs_trav_entity_modified(world, entity);
-        }
     }
 
     if (src_table == dst_table) {
@@ -946,7 +955,7 @@ void flecs_commit(
             flecs_move_entity(world, entity, record, dst_table, diff, 
                 construct, notify_on_set);
         } else {
-            flecs_delete_entity(world, record, diff);
+            flecs_delete_entity(world, entity, record, diff);
             record->table = NULL;
         }
 
@@ -2203,7 +2212,7 @@ void ecs_clear(
             .un_set = { table->storage_ids, table->storage_count }
         };
 
-        flecs_delete_entity(world, r, &diff);
+        flecs_delete_entity(world, entity, r, &diff);
         r->table = NULL;
     }    
 
@@ -2678,12 +2687,6 @@ void ecs_delete(
         ecs_flags32_t row_flags = ECS_RECORD_TO_ROW_FLAGS(r->row);
         ecs_table_t *table;
         if (row_flags) {
-            if (row_flags & EcsEntityObservedAcyclic) {
-                table = r->table;
-                if (table) {
-                    table->observed_count --;
-                }
-            }
             if (row_flags & EcsEntityObservedId) {
                 flecs_on_delete(world, entity, 0);
                 flecs_on_delete(world, ecs_pair(entity, EcsWildcard), 0);
@@ -2703,12 +2706,16 @@ void ecs_delete(
         /* If entity has components, remove them. Check if table is still alive,
          * as delete actions could have deleted the table already. */
         if (table) {
+            if (row_flags & EcsEntityObservedAcyclic) {
+                table->observed_count --;
+            }
+
             ecs_table_diff_t diff = {
                 .removed = table->type,
                 .un_set = { table->storage_ids, table->storage_count }
             };
 
-            flecs_delete_entity(world, r, &diff);
+            flecs_delete_entity(world, entity, r, &diff);
 
             r->row = 0;
             r->table = NULL;

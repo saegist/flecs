@@ -505,6 +505,7 @@ void flecs_query_sync_match_monitor(
         }
     }
 
+    const ecs_filter_t *filter = &query->filter;
     int32_t *monitor = match->monitor;
     ecs_table_t *table = match->node.table;
     int32_t *dirty_state = flecs_table_get_dirty_state(query->world, table);
@@ -513,13 +514,13 @@ void flecs_query_sync_match_monitor(
 
     monitor[0] = dirty_state[0]; /* Did table gain/lose entities */
 
-    int32_t i, term_count = query->filter.term_count;
+    int32_t i, term_count = filter->term_count;
     for (i = 0; i < term_count; i ++) {
-        int32_t t = query->filter.terms[i].field_index;
+        int32_t t = filter->terms[i].field_index;
         if (monitor[t + 1] == -1) {
             continue;
         }
-                
+
         flecs_query_get_dirty_state(query, match, t, &cur);
         ecs_assert(cur.column != -1, ECS_INTERNAL_ERROR, NULL);
         monitor[t + 1] = cur.dirty_state[cur.column + 1];
@@ -1577,6 +1578,7 @@ void flecs_query_rematch_tables(
             qt->rematch_count = rematch_count;
             qm = NULL;
         }
+
         if (!qm) {
             qm = qt->first;
         } else {

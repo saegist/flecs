@@ -387,6 +387,12 @@ void flecs_world_stats_to_json(
     ECS_COUNTER_APPEND(reply, stats, memory.stack_alloc_count, "Pages allocated by stack allocators");
     ECS_COUNTER_APPEND(reply, stats, memory.stack_free_count, "Pages freed by stack allocators");
     ECS_GAUGE_APPEND(reply, stats, memory.stack_outstanding_alloc_count, "Outstanding page allocations");
+
+    ECS_COUNTER_APPEND(reply, stats, trav_cache.entity_down_hit, "Cache hit for downwards search from entity");
+    ECS_COUNTER_APPEND(reply, stats, trav_cache.entity_down_miss, "Cache miss for downwards search from entity");
+    ECS_COUNTER_APPEND(reply, stats, trav_cache.table_down_hit, "Cache hit for downwards search from table");
+    ECS_COUNTER_APPEND(reply, stats, trav_cache.table_down_miss, "Cache miss for downwards search from table");
+
     ecs_strbuf_list_pop(reply, "}");
 }
 

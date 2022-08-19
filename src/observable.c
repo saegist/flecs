@@ -27,6 +27,33 @@ void flecs_observable_fini(
 }
 
 static
+bool flecs_id_has_observers(
+    ecs_id_record_t *idr,
+    ecs_entity_t event,
+    bool builtin_event)
+{
+    if (builtin_event) {
+        ecs_flags32_t flags = idr->flags;
+        if (!(flags & EcsIdEventMask)) {
+            return false;
+        }
+        if ((event == EcsOnAdd) && !(flags & EcsIdHasOnAdd)) {
+            return false;
+        }
+        if ((event == EcsOnRemove) && !(flags & EcsIdHasOnRemove)) {
+            return false;
+        }
+        if ((event == EcsOnSet) && !(flags & EcsIdHasOnSet)) {
+            return false;
+        }
+        if ((event == EcsUnSet) && !(flags & EcsIdHasUnSet)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static
 void notify_subset(
     ecs_world_t *world,
     ecs_iter_t *it,
@@ -41,6 +68,9 @@ void notify_subset(
         return;
     }
 
+    bool builtin_event = (event == EcsOnAdd) || (event == EcsOnRemove) ||
+                         (event == EcsOnSet) || (event == EcsUnSet);
+
     /* Iterate acyclic relationships */
     ecs_id_record_t *cur = idr;
     while ((cur = cur->acyclic.next)) {
@@ -48,9 +78,18 @@ void notify_subset(
         int32_t i, count = ids->count;
         for (i = 0; i < count; i ++) {
             ecs_id_t with = ids->array[i];
-            ecs_type_t one_id = { .array = &with, .count = 1};
-            const ecs_trav_down_t *cache = flecs_trav_entity_down(
-                world, trav, entity, with);
+            ecs_type_t one_id = { .array = &with, .count = 1 };
+            ecs_id_record_t *with_idr = flecs_id_record_get(world, with);
+            if (!with_idr) {
+                continue;
+            }
+
+            if (!flecs_id_has_observers(with_idr, event, builtin_event)) {
+                continue;
+            }
+
+            const ecs_trav_down_t *cache = flecs_trav_entity_down_w_idr(
+                world, trav, entity, with_idr);
             if (!cache) {
                 continue;
             }
@@ -60,6 +99,10 @@ void notify_subset(
             ecs_trav_elem_t *elems = ecs_vector_first(velems, ecs_trav_elem_t);
             for (t = 0; t < elem_count; t ++) {
                 ecs_table_t *table = elems[t].table;
+                if (elems[t].leaf) {
+                    continue;
+                }
+
                 it->count = ecs_table_count(table);
                 if (!it->count) {
                     continue;

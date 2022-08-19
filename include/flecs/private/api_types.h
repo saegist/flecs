@@ -119,20 +119,20 @@ typedef struct ecs_table_cache_iter_t {
 /** Term-iterator specific data */
 typedef struct ecs_term_iter_t {
     ecs_term_t term;
-    ecs_id_record_t *self_index;
-    ecs_id_record_t *set_index;
+    ecs_id_record_t *idr;
+    const struct ecs_trav_down_t *trav;
 
-    ecs_id_record_t *cur;
     ecs_table_cache_iter_t it;
+    const struct ecs_table_record_t *tr;
     int32_t index;
-    int32_t observed_table_count;
+    int32_t trav_index;
+    bool trav_done;
+    bool match_empty;
     
     ecs_table_t *table;
     int32_t cur_match;
     int32_t match_count;
     int32_t last_column;
-
-    bool empty_tables;
 
     /* Storage */
     ecs_id_t id;

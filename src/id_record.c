@@ -267,6 +267,10 @@ void flecs_id_record_free(
         ecs_entity_t rel = ecs_pair_first(world, id);
         ecs_entity_t tgt = ECS_PAIR_SECOND(id);
         if (!ecs_id_is_wildcard(id)) {
+            if (idr->flags & EcsIdAcyclic) {
+                flecs_id_record_inc_generation(idr->parent);
+            }
+
             if (ECS_PAIR_FIRST(id) != EcsFlag) {
                 /* If id is not a wildcard, remove it from the wildcard lists */
                 flecs_remove_id_elem(idr, ecs_pair(rel, EcsWildcard));
@@ -387,6 +391,15 @@ ecs_id_record_t* flecs_query_id_record_get(
     }
 
     return idr;
+}
+
+void flecs_id_record_inc_generation(
+    ecs_id_record_t *idr)
+{
+    idr->generation ++;
+    if (!idr->generation) {
+        idr->generation = 1; /* 0 is reserved for uninitialized cache */
+    }
 }
 
 void flecs_id_record_claim(

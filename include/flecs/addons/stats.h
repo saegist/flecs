@@ -131,6 +131,14 @@ typedef struct ecs_world_stats_t {
         ecs_metric_t stack_outstanding_alloc_count; /* Difference between allocs & frees */
     } memory;
 
+    /* Traversal cache stats */
+    struct {
+        ecs_metric_t entity_down_hit;
+        ecs_metric_t entity_down_miss;
+        ecs_metric_t table_down_hit;
+        ecs_metric_t table_down_miss;
+    } trav_cache;
+
     int32_t last_;
 
     /** Current position in ringbuffer */

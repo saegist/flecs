@@ -1406,7 +1406,7 @@ error:
  * with as only difference that the number of results returned for an Any pair
  * is never more than one. This function is used to tell the difference. */
 static
-bool is_any_pair(
+bool flecs_is_any_pair(
     ecs_id_t id)
 {
     if (!ECS_HAS_ID_FLAG(id, PAIR)) {
@@ -1553,11 +1553,10 @@ bool flecs_term_match_table(
 
     /* Find location, source and id of match in table type */
     ecs_table_record_t *tr = 0;
-    bool is_any = is_any_pair(id);
+    bool is_any = flecs_is_any_pair(id);
 
     column = ecs_search_relation(world, match_table,
         column, id, src->trav, src->flags, &source, id_out, &tr);
-
     if (tr && match_index_out) {
         if (!is_any) {
             match_index_out[0] = tr->count;
@@ -1722,7 +1721,7 @@ void term_iter_init_no_data(
     ecs_term_iter_t *iter)
 {
     iter->term = (ecs_term_t){ .field_index = -1 };
-    iter->self_index = NULL;
+    iter->idr = NULL;
     iter->index = 0;
 }
 
@@ -1743,7 +1742,6 @@ void term_iter_init_w_idr(
     }
 
     iter->index = 0;
-    iter->empty_tables = empty_tables;
 }
 
 static
@@ -1752,9 +1750,8 @@ void term_iter_init_wildcard(
     ecs_term_iter_t *iter,
     bool empty_tables)
 {
-    iter->term = (ecs_term_t){ .field_index = -1 };
-    iter->self_index = flecs_id_record_get(world, EcsAny);
-    ecs_id_record_t *idr = iter->cur = iter->self_index;
+    iter->term = (ecs_term_t){ .field_index = -1, .src.flags = EcsSelf };
+    ecs_id_record_t *idr = iter->idr = flecs_id_record_get(world, EcsAny);
     term_iter_init_w_idr(iter, idr, empty_tables);
 }
 
@@ -1765,26 +1762,9 @@ void term_iter_init(
     ecs_term_iter_t *iter,
     bool empty_tables)
 {    
-    const ecs_term_id_t *src = &term->src;
-
     iter->term = *term;
-
-    if (src->flags & EcsSelf) {
-        iter->self_index = flecs_query_id_record_get(world, term->id);
-    }
-
-    if (src->flags & EcsUp) {
-        iter->set_index = flecs_id_record_get(world, 
-            ecs_pair(src->trav, EcsWildcard));
-    }
-
-    ecs_id_record_t *idr;
-    if (iter->self_index) {
-        idr = iter->cur = iter->self_index;
-    } else {
-        idr = iter->cur = iter->set_index;
-    }
-
+    iter->match_empty = empty_tables;
+    ecs_id_record_t *idr = iter->idr = flecs_query_id_record_get(world, term->id);
     term_iter_init_w_idr(iter, idr, empty_tables);
 }
 
@@ -1819,7 +1799,6 @@ ecs_iter_t ecs_term_iter(
      * iterator keeps the filter iterator code simple, as it doesn't need to
      * worry about the term iter overwriting the iterator fields. */
     flecs_iter_init(stage, &it, 0);
-
     term_iter_init(world, term, &it.priv.iter.term, false);
 
     return it;
@@ -1873,31 +1852,22 @@ bool ecs_children_next(
 }
 
 static
-const ecs_table_record_t *flecs_term_iter_next_table(
-    ecs_term_iter_t *iter)
-{
-    ecs_id_record_t *idr = iter->cur;
-    if (!idr) {
-        return NULL;
-    }
-
-    return flecs_table_cache_next(&iter->it, ecs_table_record_t);
-}
-
-static
 bool flecs_term_iter_find_superset(
     ecs_world_t *world, 
     ecs_table_t *table, 
     ecs_term_t *term, 
     ecs_entity_t *source, 
     ecs_id_t *id, 
-    int32_t *column)
+    int32_t *column,
+    const ecs_table_record_t **tr_out)
 {
     ecs_term_id_t *src = &term->src;
+    ecs_table_record_t *tr;
 
     /* Test if following the relationship finds the id */
     int32_t index = ecs_search_relation(world, table, 0, 
-        term->id, src->trav, src->flags, source, id, 0);
+        term->id, src->trav, src->flags, source, id, 
+        (ecs_table_record_t**)&tr);
 
     if (index == -1) {
         *source = 0;
@@ -1905,8 +1875,11 @@ bool flecs_term_iter_find_superset(
     }
 
     ecs_assert(*source != 0, ECS_INTERNAL_ERROR, NULL);
+    *column = (tr->column + 1) * -1;
 
-    *column = (index + 1) * -1;
+    if (tr_out) {
+        *tr_out = tr;
+    }
 
     return true;
 }
@@ -1915,143 +1888,223 @@ static
 bool flecs_term_iter_next(
     ecs_world_t *world,
     ecs_term_iter_t *iter,
+    ecs_table_t *this_table,
     bool match_prefab,
     bool match_disabled)
 {
     ecs_table_t *table = iter->table;
+    const ecs_table_record_t *tr = iter->tr;
     ecs_entity_t source = 0;
-    const ecs_table_record_t *tr;
     ecs_term_t *term = &iter->term;
+    ecs_term_id_t *src = &term->src;
+    int32_t column = 0;
+    bool is_self = src->flags & EcsSelf;
+    bool is_up = src->flags & EcsUp;
+
+    const ecs_trav_down_t *trav = iter->trav;
+    bool trav_done = iter->trav_done;
+    int32_t trav_index = iter->trav_index;
+
+    /* This function does two things:
+     * - return all tables that own the requested component if term has Self.
+     * - traverse downwards from found tables for Up terms.
+     * 
+     * If this_table is set, only that table will be returned. This makes it
+     * possible to check if the provided table matches the filter, and to 
+     * iterate all matching results for a table (can be more than one for
+     * wildcard filters).
+     */
 
     do {
-        if (table) {
-            iter->cur_match ++;
-            if (iter->cur_match >= iter->match_count) {
-                table = NULL;
-            } else {
-                iter->last_column = ecs_search_offset(
-                    world, table, iter->last_column + 1, term->id, 0);
-                iter->column = iter->last_column + 1;
-                if (iter->last_column >= 0) {
-                    iter->id = table->type.array[iter->last_column];
-                }
-            }
-        }
+        ecs_assert(!tr || tr->hdr.table != NULL, ECS_INTERNAL_ERROR, NULL);
+        if (trav) {
+            ecs_assert(ecs_vector_count(trav->elems) > 0, 
+                ECS_INTERNAL_ERROR, NULL);
 
-        if (!table) {
-            if (!(tr = flecs_term_iter_next_table(iter))) {
-                if (iter->cur != iter->set_index && iter->set_index != NULL) {
-                    if (iter->observed_table_count != 0) {
-                        iter->cur = iter->set_index;
-                        if (iter->empty_tables) {
-                            flecs_table_cache_all_iter(
-                                &iter->set_index->cache, &iter->it);
-                        } else {
-                            flecs_table_cache_iter(
-                                &iter->set_index->cache, &iter->it);
-                        }
-                        iter->index = 0;
-                        tr = flecs_term_iter_next_table(iter);
-                    }
+            /* Traverse downwards from table that has the id from the cache */
+            do {
+                if (trav_index >= ecs_vector_count(trav->elems)) {
+                    trav = NULL;
+                    trav_done = true;
+                    table = tr->hdr.table;
+                    break;
                 }
 
-                if (!tr) {
-                    return false;
+                ecs_trav_elem_t *elem = ecs_vector_get(
+                    trav->elems, ecs_trav_elem_t, trav_index);
+                if (is_self && elem->leaf) {
+                    /* Leaf elements both own and inherit the component from a
+                     * relationship. They should only be matched if a filter
+                     * has Up but not Self. */
+                    trav_index ++;
+                    continue;
                 }
-            }
 
-            table = tr->hdr.table;
-            if (table->observed_count) {
-                iter->observed_table_count ++;
-            }
+                table = elem->table;
 
-            if (!match_prefab && (table->flags & EcsTableIsPrefab)) {
-                continue;
-            }
+#ifdef FLECS_SANITIZE
+                int32_t trav_cache_sanity_check = ecs_search_relation(
+                    world, table, 0, term->id, src->trav, src->flags, 0, 0, 0);
+                if (trav_cache_sanity_check == -1) {
+                    ecs_err("invalid cache entry for %s(%s) and table %p [%s]",
+                        ecs_id_str(world, term->id), 
+                        ecs_get_name(world, src->trav),
+                        table, ecs_table_str(world, table));
+                    ecs_abort(ECS_INTERNAL_ERROR, NULL);
+                }
+#endif
 
-            if (!match_disabled && (table->flags & EcsTableIsDisabled)) {
-                continue;
-            }
+                ecs_assert(
+                    flecs_sparse_is_alive(&world->store.tables, table->id),
+                    ECS_INTERNAL_ERROR, NULL);
+                if (!ecs_table_count(table) && !iter->match_empty) {
+                    /* Skip empty tables unless filter matches empty tables */
+                    trav_index ++;
+                    continue;
+                }
 
-            iter->table = table;
-            iter->match_count = tr->count;
-            if (is_any_pair(term->id)) {
+                source = elem->source;
+                trav_index ++;
                 iter->match_count = 1;
+                column = (iter->last_column + 1) * -1; /* Encode shared id */
+                ecs_assert(table != NULL, ECS_INTERNAL_ERROR, NULL);
+                ecs_assert(source != 0, ECS_INTERNAL_ERROR, NULL);
+                ecs_assert(ecs_is_alive(world, source), ECS_INTERNAL_ERROR, NULL);
+
+                break;
+            } while (true);
+            if (!trav) {
+                continue;
             }
-
-            iter->cur_match = 0;
-            iter->last_column = tr->column;
-            iter->column = tr->column + 1;
-            iter->id = flecs_to_public_id(table->type.array[tr->column]);
-        }
-
-        if (iter->cur == iter->set_index) {
-            if (iter->self_index) {
-                if (flecs_id_record_get_table(iter->self_index, table) != NULL) {
-                    /* If the table has the id itself and this term matched Self
-                     * we already matched it */
+        } else if (table) {
+            /* Before going to the next match, first traverse relationship */
+            if (!trav_done && is_up) {
+                /* Fetch cache that contains tables traversing downward from
+                 * current table, that do not own the id themselves */
+                trav = flecs_trav_table_down(world, src->trav, table, term->id);
+                if (trav) {
+                    trav_index = 0;
                     continue;
                 }
             }
 
-            if (!flecs_term_iter_find_superset(
-                world, table, term, &source, &iter->id, &iter->column)) 
-            {
-                continue;
+            /* Go to next match, if id is a (non-Any) wildcard */
+            iter->cur_match ++;
+            if (!flecs_is_any_pair(term->id) && iter->cur_match < tr->count) {
+                iter->last_column = ecs_search_offset(
+                    world, table, iter->last_column + 1, term->id, 0);
+                column = iter->last_column;
+                source = 0;
+                if (iter->last_column >= 0) {
+                    iter->id = table->type.array[iter->last_column];
+                }
+            } else {
+                table = NULL; /* Next table */
+            }
+        }
+
+        if (!table) {
+            if (!this_table) {
+                /* Find next table that owns the requested component */
+                tr = flecs_table_cache_next(&iter->it, ecs_table_record_t);
+                if (!tr) {
+                    return false;
+                }
+
+                table = tr->hdr.table;
+                column = tr->column;
+                iter->match_count = tr->count;
+                source = 0;
+            } else {
+                /* Check if provided table matches filter */
+                if (this_table == iter->table) {
+                    /* If the previously iterated table was the provided table,
+                     * we're done. */
+                    return false;
+                }
+
+                if (is_self) {
+                    tr = flecs_id_record_get_table(iter->idr, this_table);
+                    if (tr) {
+                        iter->match_count = tr->count;
+                        column = tr->column;
+                        source = 0;
+                    }
+                }
+
+                if (!tr && is_up) {
+                    /* If the provided table does not own the component but this
+                     * is a term with Up, check if the requested id is reachable
+                     * by traversing */
+                    if (!flecs_term_iter_find_superset(world, this_table, term,
+                        &source, &iter->id, &column, &tr))
+                    {
+                        /* Component is not reachable */
+                        return false;
+                    }
+
+                    iter->match_count = 1;
+                    table = this_table;
+                    iter->table = table;
+                    break;
+                } else if (!tr) {
+                    return false;
+                }
+
+                table = this_table;
+                iter->table = table;
             }
 
-            /* The tr->count field refers to the number of relationship instances,
-             * not to the number of matches. Superset terms can only yield a
-             * single match. */
-            iter->match_count = 1;
+            iter->cur_match = 0;
+            iter->last_column = column;
+
+            if (flecs_is_any_pair(term->id)) {
+                /* Any pairs never return more than one result */
+                iter->match_count = 1;
+            }
+
+            trav_done = !is_up;
+            if (!is_self) {
+                /* Not looking for owned components, so move to traversal */
+                continue;
+            }
+        }
+
+        ecs_assert(table != NULL, ECS_INTERNAL_ERROR, NULL);
+        if ((!match_prefab && (table->flags & EcsTableIsPrefab)) ||
+            (!match_disabled && (table->flags & EcsTableIsDisabled))) 
+        {
+            /* Filter out disabled / prefab entities */
+            continue;
         }
 
         break;
     } while (true);
 
-    iter->subject = source;
-
-    return true;
-}
-
-static
-bool flecs_term_iter_set_table(
-    ecs_world_t *world,
-    ecs_term_iter_t *iter,
-    ecs_table_t *table)
-{
-    const ecs_table_record_t *tr = NULL;
-    const ecs_id_record_t *idr = iter->self_index;
-    if (idr) {
-        tr = ecs_table_cache_get(&idr->cache, table);
-        if (tr) {
-            iter->match_count = tr->count;
-            iter->last_column = tr->column;
-            iter->column = tr->column + 1;
-            iter->id = flecs_to_public_id(table->type.array[tr->column]);
-        }
-    }
-
-    if (!tr) {
-        idr = iter->set_index;
-        if (idr) {
-            tr = ecs_table_cache_get(&idr->cache, table);
-            if (!flecs_term_iter_find_superset(world, table, &iter->term, 
-                &iter->subject, &iter->id, &iter->column)) 
-            {
-                return false;
-            }
-            iter->match_count = 1;
-        }
-    }
-
-    if (!tr) {
-        return false;
-    }
-
-    /* Populate fields as usual */
+    iter->tr = tr;
     iter->table = table;
-    iter->cur_match = 0;
+    iter->subject = source;
+    iter->trav = trav;
+    iter->trav_done = trav_done;
+    iter->trav_index = trav_index;
+
+    if (!source) {
+        iter->last_column = column;
+        iter->column = column + 1;
+        ecs_assert(column >= 0, ECS_INTERNAL_ERROR, NULL);
+        iter->id = flecs_to_public_id(table->type.array[column]);
+    } else {
+        ecs_table_t *src_table;
+        if (tr) {
+            src_table = iter->tr->hdr.table;
+        } else {
+            src_table = ecs_get_table(world, source);
+        }
+        iter->column = column;
+        ecs_assert(column < 0, ECS_INTERNAL_ERROR, NULL);
+        iter->id = flecs_to_public_id(
+            src_table->type.array[(-column) - 1]);
+    }
 
     return true;
 }
@@ -2100,15 +2153,12 @@ bool ecs_term_next(
         goto yield;
 
     } else {
-        if (!flecs_term_iter_next(world, iter, false, false)) {
+        if (!flecs_term_iter_next(world, iter, NULL, false, false)) {
             goto done;
         }
 
         table = iter->table;
 
-        /* Source must either be 0 (EcsThis) or nonzero in case of substitution */
-        ecs_assert(iter->subject || iter->cur != iter->set_index, 
-            ECS_INTERNAL_ERROR, NULL);
         ecs_assert(iter->table != NULL, ECS_INTERNAL_ERROR, NULL);
     }
 
@@ -2370,38 +2420,14 @@ bool ecs_filter_next_instanced(
 
             if (first) {
                 if (kind != EcsIterEvalCondition) {
-                    /* Check if this variable was constrained */
-                    if (this_table != NULL) {                        
-                        /* If this is the first match of a new result and the
-                         * previous result was equal to the value of a 
-                         * constrained var, there's nothing left to iterate */
-                        if (it->table == this_table) {
-                            goto done;
-                        }
-
-                        /* If table doesn't match term iterator, it doesn't
-                         * match filter. */
-                        if (!flecs_term_iter_set_table(
-                            world, term_iter, this_table))
-                        {
-                            goto done;
-                        }
-
-                        /* But if it does, forward it to filter matching */
-                        ecs_assert(term_iter->table == this_table,
-                            ECS_INTERNAL_ERROR, NULL);
-
-                    /* If This variable is not constrained, iterate as usual */
-                    } else {
-                        /* Find new match, starting with the leading term */
-                        if (!flecs_term_iter_next(world, term_iter, 
-                            ECS_BIT_IS_SET(filter->flags, 
-                                EcsFilterMatchPrefab), 
-                            ECS_BIT_IS_SET(filter->flags, 
-                                EcsFilterMatchDisabled))) 
-                        {
-                            goto done;
-                        }
+                    /* Find new match, starting with the leading term */
+                    if (!flecs_term_iter_next(world, term_iter, this_table,
+                        ECS_BIT_IS_SET(filter->flags, 
+                            EcsFilterMatchPrefab), 
+                        ECS_BIT_IS_SET(filter->flags, 
+                            EcsFilterMatchDisabled))) 
+                    {
+                        goto done;
                     }
 
                     ecs_assert(term_iter->match_count != 0, 
@@ -2415,12 +2441,7 @@ bool ecs_filter_next_instanced(
                         it->match_indices[pivot_term] = term_iter->match_count;
                     }
 
-                    iter->matches_left = term_iter->match_count;
-
-                    /* Filter iterator takes control over iterating all the
-                     * permutations that match the wildcard. */
-                    term_iter->match_count = 1;
-
+                    iter->matches_left = 1;
                     table = term_iter->table;
 
                     if (pivot_term != -1) {

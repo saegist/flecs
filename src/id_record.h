@@ -48,7 +48,7 @@ struct ecs_id_record_t {
     ecs_id_record_elem_t acyclic; /* (*, O) with only acyclic relationships */
 
     /* For traversal caches */
-    int32_t generation;
+    uint32_t generation;
 };
 
 /* Get id record for id */
@@ -67,6 +67,10 @@ ecs_id_record_t* flecs_query_id_record_get(
 ecs_id_record_t* flecs_id_record_ensure(
     ecs_world_t *world,
     ecs_id_t id);
+
+/* Increase generation count (used for cache invalidation) */
+void flecs_id_record_inc_generation(
+    ecs_id_record_t *idr);
 
 /* Increase refcount of id record */
 void flecs_id_record_claim(

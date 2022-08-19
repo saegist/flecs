@@ -310,6 +310,22 @@ void ecs_world_stats_get(
     ECS_COUNTER_RECORD(&s->commands.batched_entity_count, t, world->info.cmd.batched_entity_count);
     ECS_COUNTER_RECORD(&s->commands.batched_count, t, world->info.cmd.batched_command_count);
 
+    int32_t i, count = world->stage_count;
+    ecs_trav_stats_t entity_down = {0};
+    ecs_trav_stats_t table_down = {0};
+    for (i = 0; i < count; i ++) {
+        ecs_stage_t *stage = &world->stages[i];
+        entity_down.cache_hit += stage->trav.entity_down_stats.cache_hit;
+        entity_down.cache_miss += stage->trav.entity_down_stats.cache_miss;
+        table_down.cache_hit += stage->trav.table_down_stats.cache_hit;
+        table_down.cache_miss += stage->trav.table_down_stats.cache_miss;
+    }
+
+    ECS_COUNTER_RECORD(&s->trav_cache.entity_down_hit, t, entity_down.cache_hit);
+    ECS_COUNTER_RECORD(&s->trav_cache.entity_down_miss, t, entity_down.cache_miss);
+    ECS_COUNTER_RECORD(&s->trav_cache.table_down_hit, t, table_down.cache_hit);
+    ECS_COUNTER_RECORD(&s->trav_cache.table_down_miss, t, table_down.cache_miss);
+
     int64_t outstanding_allocs = ecs_os_api_malloc_count + 
         ecs_os_api_calloc_count - ecs_os_api_free_count;
     ECS_COUNTER_RECORD(&s->memory.alloc_count, t, ecs_os_api_malloc_count + ecs_os_api_calloc_count);

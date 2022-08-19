@@ -139,7 +139,7 @@ int32_t type_search_relation(
             ecs_table_t *obj_table = rec->table;
             if (obj_table) {
                 ecs_assert(obj_table != table, ECS_CYCLE_DETECTED, NULL);
-                
+
                 r = type_search_relation(world, obj_table, 0, id, idr, 
                     rel, idr_r, true, subject_out, id_out, tr_out);
                 if (r != -1) {

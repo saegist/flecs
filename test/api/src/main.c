@@ -1032,8 +1032,16 @@ void Filter_filter_iter_cascade_isa(void);
 void Filter_filter_iter_cascade_childof(void);
 void Filter_filter_iter_superset_2_rel_instances(void);
 void Filter_filter_iter_superset_2_rel_instances_match_2nd(void);
+void Filter_filter_iter_superset_2_levels(void);
+void Filter_filter_iter_superset_only_w_owned(void);
+void Filter_filter_iter_superset_after_add(void);
+void Filter_filter_iter_superset_after_remove(void);
+void Filter_filter_iter_superset_after_clear(void);
+void Filter_filter_iter_superset_after_delete(void);
 void Filter_filter_iter_2_terms_superset_2_rel_instances(void);
 void Filter_filter_iter_2_terms_superset_2_rel_instances_match_2nd(void);
+void Filter_filter_iter_superset_parent_w_isa(void);
+void Filter_filter_iter_superset_isa_after_remove_parent(void);
 void Filter_filter_w_10_terms(void);
 void Filter_filter_w_10_terms_move(void);
 void Filter_filter_w_10_terms_copy(void);
@@ -1112,6 +1120,8 @@ void Filter_set_this_to_childof_superset_match(void);
 void Filter_set_this_to_superset_w_self_filter_no_match(void);
 void Filter_set_this_to_isa_cascade(void);
 void Filter_set_this_to_childof_cascade(void);
+void Filter_set_this_w_wildcard_2_matches(void);
+void Filter_set_this_to_entity_superset_self_has_component(void);
 void Filter_oneof(void);
 void Filter_oneof_expr(void);
 void Filter_oneof_w_mismatching_obj(void);
@@ -6153,12 +6163,44 @@ bake_test_case Filter_testcases[] = {
         Filter_filter_iter_superset_2_rel_instances_match_2nd
     },
     {
+        "filter_iter_superset_2_levels",
+        Filter_filter_iter_superset_2_levels
+    },
+    {
+        "filter_iter_superset_only_w_owned",
+        Filter_filter_iter_superset_only_w_owned
+    },
+    {
+        "filter_iter_superset_after_add",
+        Filter_filter_iter_superset_after_add
+    },
+    {
+        "filter_iter_superset_after_remove",
+        Filter_filter_iter_superset_after_remove
+    },
+    {
+        "filter_iter_superset_after_clear",
+        Filter_filter_iter_superset_after_clear
+    },
+    {
+        "filter_iter_superset_after_delete",
+        Filter_filter_iter_superset_after_delete
+    },
+    {
         "filter_iter_2_terms_superset_2_rel_instances",
         Filter_filter_iter_2_terms_superset_2_rel_instances
     },
     {
         "filter_iter_2_terms_superset_2_rel_instances_match_2nd",
         Filter_filter_iter_2_terms_superset_2_rel_instances_match_2nd
+    },
+    {
+        "filter_iter_superset_parent_w_isa",
+        Filter_filter_iter_superset_parent_w_isa
+    },
+    {
+        "filter_iter_superset_isa_after_remove_parent",
+        Filter_filter_iter_superset_isa_after_remove_parent
     },
     {
         "filter_w_10_terms",
@@ -6471,6 +6513,14 @@ bake_test_case Filter_testcases[] = {
     {
         "set_this_to_childof_cascade",
         Filter_set_this_to_childof_cascade
+    },
+    {
+        "set_this_w_wildcard_2_matches",
+        Filter_set_this_w_wildcard_2_matches
+    },
+    {
+        "set_this_to_entity_superset_self_has_component",
+        Filter_set_this_to_entity_superset_self_has_component
     },
     {
         "oneof",
@@ -10940,7 +10990,7 @@ static bake_test_suite suites[] = {
         "Filter",
         NULL,
         NULL,
-        234,
+        244,
         Filter_testcases
     },
     {

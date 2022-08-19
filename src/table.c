@@ -633,17 +633,17 @@ void flecs_table_records_unregister(
     int32_t i, count = table->record_count;
     for (i = 0; i < count; i ++) {
         ecs_table_record_t *tr = &table->records[i];
-        ecs_table_cache_t *cache = tr->hdr.cache;
-        ecs_id_t id = ((ecs_id_record_t*)cache)->id;
+        ecs_id_record_t *idr = (ecs_id_record_t*)tr->hdr.cache;
+        ecs_id_t id = idr->id;
 
-        ecs_assert(tr->hdr.cache == cache, ECS_INTERNAL_ERROR, NULL);
         ecs_assert(tr->hdr.table == table, ECS_INTERNAL_ERROR, NULL);
-        ecs_assert(flecs_id_record_get(world, id) == (ecs_id_record_t*)cache,
+        ecs_assert(flecs_id_record_get(world, id) == idr,
             ECS_INTERNAL_ERROR, NULL);
         (void)id;
 
-        ecs_table_cache_remove(cache, table, &tr->hdr);
-        flecs_id_record_release(world, (ecs_id_record_t*)cache);
+        ecs_table_cache_remove(&idr->cache, table, &tr->hdr);
+        idr->generation ++;
+        flecs_id_record_release(world, idr);
     }
 
     flecs_wfree_n(world, ecs_table_record_t, count, table->records);
