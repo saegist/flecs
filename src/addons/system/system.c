@@ -107,6 +107,7 @@ ecs_entity_t ecs_run_intern(
     } else if (system_data->query->filter.term_count) {
         if (it == &qit) {
             while (ecs_query_next(&qit)) {
+                // if (qit.table) printf("run table %u\n", qit.table->id);
                 action(&qit);
             }
         } else {

@@ -135,8 +135,10 @@ typedef struct ecs_world_stats_t {
     struct {
         ecs_metric_t entity_down_hit;
         ecs_metric_t entity_down_miss;
+        ecs_metric_t entity_down_count;
         ecs_metric_t table_down_hit;
         ecs_metric_t table_down_miss;
+        ecs_metric_t table_down_count;
     } trav_cache;
 
     int32_t last_;

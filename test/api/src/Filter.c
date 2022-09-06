@@ -6128,6 +6128,63 @@ void Filter_filter_iter_superset_isa_after_remove_parent() {
     ecs_fini(world);
 }
 
+void Filter_filter_iter_superset_isa_create_table_after_iter() {
+    ecs_world_t *world = ecs_mini();
+
+    ECS_COMPONENT(world, Position);
+
+    ecs_entity_t tag = ecs_new_id(world);
+    ecs_entity_t base = ecs_new_id(world);
+    ecs_add_id(world, base, EcsPrefab);
+    ecs_set(world, base, Position, {10, 20});
+    ecs_entity_t inst_1 = ecs_new_w_pair(world, EcsIsA, base);
+
+    ecs_filter_t *f = ecs_filter(world, {
+        .terms = {{ ecs_id(Position), .src.flags = EcsUp }}
+    });
+
+    ecs_iter_t it = ecs_filter_iter(world, f);
+    test_bool(true, ecs_filter_next(&it));
+    test_int(1, it.count);
+    test_uint(inst_1, it.entities[0]);
+    test_uint(base, it.sources[0]);
+    test_uint(ecs_id(Position), ecs_field_id(&it, 1));
+    Position *p = ecs_field(&it, Position, 1);
+    test_assert(p != NULL);
+    test_int(p->x, 10);
+    test_int(p->y, 20);
+    test_bool(false, ecs_filter_next(&it));
+
+    ecs_entity_t inst_2 = ecs_new_w_pair(world, EcsIsA, base);
+    ecs_add_id(world, inst_2, tag);
+
+    it = ecs_filter_iter(world, f);
+    test_bool(true, ecs_filter_next(&it));
+    test_int(1, it.count);
+    test_uint(inst_1, it.entities[0]);
+    test_uint(base, it.sources[0]);
+    test_uint(ecs_id(Position), ecs_field_id(&it, 1));
+    p = ecs_field(&it, Position, 1);
+    test_assert(p != NULL);
+    test_int(p->x, 10);
+    test_int(p->y, 20);
+
+    test_bool(true, ecs_filter_next(&it));
+    test_int(1, it.count);
+    test_uint(inst_2, it.entities[0]);
+    test_uint(base, it.sources[0]);
+    test_uint(ecs_id(Position), ecs_field_id(&it, 1));
+    p = ecs_field(&it, Position, 1);
+    test_assert(p != NULL);
+    test_int(p->x, 10);
+    test_int(p->y, 20);
+    test_bool(false, ecs_filter_next(&it));
+
+    ecs_filter_fini(f);
+
+    ecs_fini(world);
+}
+
 void Filter_filter_w_10_terms() {
     ecs_world_t *world = ecs_mini();
 

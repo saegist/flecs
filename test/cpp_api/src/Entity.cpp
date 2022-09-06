@@ -3376,12 +3376,15 @@ void Entity_slot_of() {
     test_assert(inst.has(base_child, flecs::Wildcard));
 }
 
+#include <iostream>
+
 void Entity_slot_of_w_type() {
     flecs::world world;
 
     struct Parent { };
 
     auto base = world.prefab<Parent>();
+
     auto base_child = world.prefab()
         .child_of(base)
         .slot_of<Parent>();

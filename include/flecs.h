@@ -2563,6 +2563,10 @@ char* ecs_table_str(
     const ecs_world_t *world,
     const ecs_table_t *table);
 
+FLECS_API
+uint64_t ecs_table_id(
+    const ecs_table_t *table);
+
 /** Convert entity to string.
  * Same as combining:
  * - ecs_get_fullpath(world, entity)

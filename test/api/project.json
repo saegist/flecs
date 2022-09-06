@@ -1099,6 +1099,7 @@
                 "filter_iter_2_terms_superset_2_rel_instances_match_2nd",
                 "filter_iter_superset_parent_w_isa",
                 "filter_iter_superset_isa_after_remove_parent",
+                "filter_iter_superset_isa_create_table_after_iter",
                 "filter_w_10_terms",
                 "filter_w_10_terms_move",
                 "filter_w_10_terms_copy",

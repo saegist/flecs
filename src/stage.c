@@ -504,9 +504,9 @@ void flecs_stage_fini(
     flecs_stack_fini(&stage->defer_stack);
     flecs_stack_fini(&stage->allocators.iter_stack);
     flecs_stack_fini(&stage->allocators.deser_stack);
+    flecs_trav_fini(&stage->trav);
     flecs_ballocator_fini(&stage->allocators.cmd_entry_chunk);
     flecs_allocator_fini(&stage->allocator);
-    flecs_trav_fini(&stage->trav);
 }
 
 void ecs_set_stage_count(

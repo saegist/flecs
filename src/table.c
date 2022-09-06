@@ -85,6 +85,11 @@ void flecs_table_check_sanity(ecs_table_t *table) {
                 ECS_INTERNAL_ERROR, NULL);
         }
     }
+
+    ecs_entity_t *entities = table->data.entities.array;
+    for (i = 0; (i < count) && (i < 100); i ++) {
+        ecs_assert(entities[i] != 0, ECS_INTERNAL_ERROR, NULL);
+    }
 }
 #else
 #define flecs_table_check_sanity(table)
@@ -617,6 +622,8 @@ void flecs_table_init(
 
         /* Initialize event flags */
         table->flags |= idr->flags & EcsIdEventMask;
+
+        idr->generation ++;
     }
 
     world->store.records = records;
@@ -2577,4 +2584,10 @@ int32_t flecs_table_observed_count(
     const ecs_table_t *table)
 {
     return table->observed_count;
+}
+
+uint64_t ecs_table_id(
+    const ecs_table_t *table)
+{
+    return table->id;
 }

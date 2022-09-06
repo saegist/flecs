@@ -1042,6 +1042,7 @@ void Filter_filter_iter_2_terms_superset_2_rel_instances(void);
 void Filter_filter_iter_2_terms_superset_2_rel_instances_match_2nd(void);
 void Filter_filter_iter_superset_parent_w_isa(void);
 void Filter_filter_iter_superset_isa_after_remove_parent(void);
+void Filter_filter_iter_superset_isa_create_table_after_iter(void);
 void Filter_filter_w_10_terms(void);
 void Filter_filter_w_10_terms_move(void);
 void Filter_filter_w_10_terms_copy(void);
@@ -6203,6 +6204,10 @@ bake_test_case Filter_testcases[] = {
         Filter_filter_iter_superset_isa_after_remove_parent
     },
     {
+        "filter_iter_superset_isa_create_table_after_iter",
+        Filter_filter_iter_superset_isa_create_table_after_iter
+    },
+    {
         "filter_w_10_terms",
         Filter_filter_w_10_terms
     },
@@ -10990,7 +10995,7 @@ static bake_test_suite suites[] = {
         "Filter",
         NULL,
         NULL,
-        244,
+        245,
         Filter_testcases
     },
     {

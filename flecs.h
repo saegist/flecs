@@ -5779,6 +5779,10 @@ char* ecs_table_str(
     const ecs_world_t *world,
     const ecs_table_t *table);
 
+FLECS_API
+uint64_t ecs_table_id(
+    const ecs_table_t *table);
+
 /** Convert entity to string.
  * Same as combining:
  * - ecs_get_fullpath(world, entity)
@@ -10554,8 +10558,10 @@ typedef struct ecs_world_stats_t {
     struct {
         ecs_metric_t entity_down_hit;
         ecs_metric_t entity_down_miss;
+        ecs_metric_t entity_down_count;
         ecs_metric_t table_down_hit;
         ecs_metric_t table_down_miss;
+        ecs_metric_t table_down_count;
     } trav_cache;
 
     int32_t last_;

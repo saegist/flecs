@@ -35,6 +35,7 @@ typedef struct {
 typedef struct {
     int32_t cache_hit;
     int32_t cache_miss;
+    int32_t entry_count;
 } ecs_trav_stats_t;
 
 typedef struct {

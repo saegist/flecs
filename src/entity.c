@@ -372,6 +372,8 @@ void flecs_instantiate_children(
             childof_base_index = pos;
         }
 
+        ecs_assert(pos < type_count, ECS_INTERNAL_ERROR, NULL);
+
         int32_t storage_index = ecs_table_type_to_storage_index(child_table, i);
         if (storage_index != -1) {
             ecs_vec_t *column = &child_data->columns[storage_index];
