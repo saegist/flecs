@@ -449,7 +449,7 @@ void Pairs_query_2_pairs_2_instances_per_type() {
 
     ecs_set_pair(world, e1, RelB, ecs_id(Velocity), {
         .value = 4
-    });        
+    });
 
     test_assert( ecs_has_pair(world, e1, ecs_id(RelA), ecs_id(Position)));
     test_assert( ecs_has_pair(world, e1, ecs_id(RelB), ecs_id(Position)));

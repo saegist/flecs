@@ -224,7 +224,7 @@ EcsPoly* flecs_pipeline_term_system(
     ecs_iter_t *it)
 {
     int32_t index = ecs_search(it->real_world, it->table, 
-        ecs_poly_id(EcsSystem), 0);
+        ecs_poly_id(EcsSystem), 0, 0);
     ecs_assert(index != -1, ECS_INTERNAL_ERROR, NULL);
     EcsPoly *poly = ecs_table_get_column(it->table, index);
     ecs_assert(poly != NULL, ECS_INTERNAL_ERROR, NULL);

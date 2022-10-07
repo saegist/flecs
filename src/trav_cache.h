@@ -6,6 +6,30 @@
 #ifndef FLECS_TRAV_CACHE_H
 #define FLECS_TRAV_CACHE_H
 
+/* Id compressed to index */
+typedef struct {
+    int32_t value;
+} ecs_trav_id_index_t;
+
+/* Traversal cache key */
+typedef struct {
+    uint64_t id;  /* Entity or table id */
+    int32_t trav; /* Compressed trav id */
+    int32_t with; /* Compressed with id */
+} ecs_trav_key_t;
+
+typedef struct {
+    const struct ecs_table_record_t *tr;
+    ecs_entity_t source;
+    ecs_id_t id;    /* found id (can be different for wildcard queries) */
+    int32_t column; /* column for traversed relationship */
+    uint32_t generation;
+} ecs_trav_up_t;
+
+typedef struct {
+    ecs_map_t with; /* map<with, trav_up_t> */
+} ecs_trav_up_for_t;
+
 /** Cache for speeding up relationship traversal */
 typedef struct {
     ecs_table_t *table;
@@ -19,30 +43,35 @@ typedef struct ecs_trav_down_t {
 } ecs_trav_down_t;
 
 typedef struct {
-    const struct ecs_table_record_t *tr;
-    ecs_entity_t source;
-    uint32_t generation;
-} ecs_trav_up_t;
+    ecs_vec_t with;
+} ecs_trav_down_for_trav_t; /* vec<ecs_trav_down_t> (with = index) */
 
 typedef struct {
-    ecs_map_t with; /* map<with, trav_down_t> */
+    ecs_vec_t trav; /* vec<ecs_trav_down_for_trav_t> (trav = index) */
 } ecs_trav_down_for_t;
-
-typedef struct {
-    ecs_map_t with; /* map<with, trav_down_t> */
-} ecs_trav_up_for_t;
 
 typedef struct {
     int32_t cache_hit;
     int32_t cache_miss;
-    int32_t entry_count;
 } ecs_trav_stats_t;
 
 typedef struct {
     ecs_allocator_t *allocator;
-    ecs_map_t entity_down; /* map<(trav, entity), trav_down_for_t> */
-    ecs_map_t table_down;  /* map<(trav, table), trav_down_for_t> */
-    ecs_map_t up; /* map<(trav, entity), trav_up_for_t> */
+    ecs_map_params_t trav_down_for_params;
+    ecs_map_params_t trav_up_for_params;
+    ecs_map_params_t trav_down_params;
+    ecs_map_params_t trav_up_params;
+    // ecs_map_t entity_down; /* map<(trav, entity), trav_down_for_t> */
+    // ecs_map_t table_down;  /* map<(trav, table),  trav_down_for_t> */
+    ecs_map_t up;          /* map<(trav, entity), trav_up_for_t> */
+
+    ecs_sparse_t entity_down;
+    ecs_sparse_t table_down;
+
+    /* Compress trav and with ids so we can use direct array indexing */
+    ecs_sparse_t trav_map; /* sparse set, relationship fits in 32 bits */
+    ecs_map_t with_map;    /* map, ids can be pairs which are 64 bit */
+
     ecs_trav_stats_t entity_down_stats;
     ecs_trav_stats_t table_down_stats;
     ecs_trav_stats_t up_stats;
@@ -70,14 +99,20 @@ const ecs_trav_down_t* flecs_trav_entity_down_w_idr(
 const ecs_trav_down_t* flecs_trav_table_down(
     ecs_world_t *world,
     ecs_entity_t trav,
-    ecs_table_t *table,
+    const ecs_table_t *table,
     ecs_id_t with);
 
 const ecs_trav_up_t* flecs_trav_up(
     ecs_world_t *world,
     ecs_entity_t trav,
-    ecs_table_t *table,
+    const ecs_table_t *table,
     ecs_id_t with);
+
+const ecs_trav_up_t* flecs_trav_up_w_idr(
+    ecs_world_t *world,
+    ecs_entity_t trav,
+    const ecs_table_t *table,
+    ecs_id_record_t *idr);
 
 void flecs_trav_entity_modified(
     ecs_world_t *world,
@@ -87,5 +122,10 @@ void flecs_trav_entity_clear(
     ecs_world_t *world,
     ecs_entity_t trav,
     ecs_entity_t entity);
+
+void flecs_trav_table_clear(
+    ecs_world_t *world,
+    ecs_entity_t trav,
+    ecs_table_t *table);
 
 #endif

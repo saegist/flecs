@@ -358,7 +358,7 @@ void Type_large_type_expr() {
         ecs_entity_t e = ecs_lookup(world, buff);
         test_assert(e != 0);
         test_str(ecs_get_name(world, e), buff);
-        test_assert(ecs_search(world, table, e, 0) != -1);
+        test_assert(ecs_search(world, table, e, 0, 0) != -1);
     }
 
     ecs_fini(world);
@@ -398,7 +398,7 @@ void Type_large_type_expr_limit() {
         ecs_entity_t e = ecs_lookup(world, buff);
         test_assert(e != 0);
         test_str(ecs_get_name(world, e), buff);
-        test_assert(ecs_search(world, table, e, 0) != -1);
+        test_assert(ecs_search(world, table, e, 0, 0) != -1);
     }
 
     ecs_fini(world);

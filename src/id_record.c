@@ -265,7 +265,7 @@ void flecs_id_record_free(
 
     if (ECS_IS_PAIR(id)) {
         ecs_entity_t rel = ecs_pair_first(world, id);
-        ecs_entity_t tgt = ECS_PAIR_SECOND(id);
+        ecs_entity_t tgt = ecs_pair_second(world, id);
         if (!ecs_id_is_wildcard(id)) {
             if (idr->flags & EcsIdAcyclic) {
                 flecs_id_record_inc_generation(idr->parent);

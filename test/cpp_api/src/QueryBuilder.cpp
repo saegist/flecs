@@ -1380,7 +1380,7 @@ void QueryBuilder_group_by_template() {
 static
 uint64_t group_by_rel(flecs::world_t *world, flecs::table_t *table, flecs::entity_t id, void *ctx) {
     ecs_id_t match;
-    if (ecs_search(world, table, ecs_pair(id, EcsWildcard), &match) != -1) {
+    if (ecs_search(world, table, ecs_pair(id, EcsWildcard), &match, 0) != -1) {
         return ECS_PAIR_SECOND(match);
     }
     return 0;

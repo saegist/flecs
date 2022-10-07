@@ -45,7 +45,7 @@ void ecs_on_set(EcsIdentifier)(ecs_iter_t *it) {
         index = &world->aliases;
     } else if (kind == EcsName) {
         ecs_assert(it->table != NULL, ECS_INTERNAL_ERROR, NULL);
-        ecs_search(world, it->table, ecs_childof(EcsWildcard), &pair);
+        ecs_search(world, it->table, ecs_childof(EcsWildcard), &pair, 0);
         ecs_assert(pair != 0, ECS_INTERNAL_ERROR, NULL);
 
         if (evt == EcsOnSet) {
@@ -427,10 +427,10 @@ void flecs_on_parent_change(ecs_iter_t *it) {
     ecs_table_t *other_table = it->other_table, *table = it->table;
 
     int32_t col = ecs_search(it->real_world, table, 
-        ecs_pair(ecs_id(EcsIdentifier), EcsName), 0);
+        ecs_pair(ecs_id(EcsIdentifier), EcsName), 0, 0);
     bool has_name = col != -1;
     bool other_has_name = ecs_search(it->real_world, other_table,
-        ecs_pair(ecs_id(EcsIdentifier), EcsName), 0) != -1;
+        ecs_pair(ecs_id(EcsIdentifier), EcsName), 0, 0) != -1;
 
     if (!has_name && !other_has_name) {
         /* If tables don't have names, index does not need to be updated */
@@ -442,7 +442,7 @@ void flecs_on_parent_change(ecs_iter_t *it) {
 
     /* Find the other ChildOf relationship */
     ecs_search(it->real_world, other_table,
-        ecs_pair(EcsChildOf, EcsWildcard), &from_pair);
+        ecs_pair(EcsChildOf, EcsWildcard), &from_pair, 0);
 
     bool to_has_name = has_name, from_has_name = other_has_name;
     if (it->event == EcsOnRemove) {

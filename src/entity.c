@@ -56,7 +56,7 @@ flecs_component_ptr_t get_component_ptr(
     ecs_assert(id != 0, ECS_INVALID_PARAMETER, NULL);
 
     if (!table->storage_table) {
-        ecs_check(ecs_search(world, table, id, 0) == -1, 
+        ecs_check(ecs_search(world, table, id, 0, 0) == -1, 
             ECS_NOT_A_COMPONENT, NULL);
         return (flecs_component_ptr_t){0};
     }
@@ -64,7 +64,7 @@ flecs_component_ptr_t get_component_ptr(
     ecs_table_record_t *tr = flecs_table_record_get(
         world, table->storage_table, id);
     if (!tr) {
-        ecs_check(ecs_search(world, table, id, 0) == -1, 
+        ecs_check(ecs_search(world, table, id, 0, 0) == -1, 
             ECS_NOT_A_COMPONENT, NULL);
        return (flecs_component_ptr_t){0};
     }
@@ -498,7 +498,7 @@ void flecs_instantiate(
     }
 
     ecs_run_aperiodic(world, EcsAperiodicEmptyTables);
-    
+
     ecs_id_record_t *idr = flecs_id_record_get(world, ecs_childof(base));
     ecs_table_cache_iter_t it;
     if (idr && flecs_table_cache_iter((ecs_table_cache_t*)idr, &it)) {
@@ -3295,7 +3295,7 @@ void ecs_enable_id(
     ecs_table_t *table = r->table;
     int32_t index = -1;
     if (table) {
-        index = ecs_search(world, table, bs_id, 0);
+        index = ecs_search(world, table, bs_id, 0, 0);
     }
 
     if (index == -1) {
@@ -3335,7 +3335,7 @@ bool ecs_is_enabled_id(
     }
 
     ecs_entity_t bs_id = id | ECS_TOGGLE;
-    int32_t index = ecs_search(world, table, bs_id, 0);
+    int32_t index = ecs_search(world, table, bs_id, 0, 0);
     if (index == -1) {
         /* If table does not have TOGGLE column for component, component is
          * always enabled, if the entity has it */

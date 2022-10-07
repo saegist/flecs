@@ -132,10 +132,16 @@ void Search_search_first_lvl_0(void);
 void Search_search_first_lvl_1(void);
 void Search_search_first_lvl_2(void);
 void Search_search_first_lvl_3(void);
+void Search_search_relation_wildcard(void);
 void Search_search_relation_at_offset(void);
+void Search_search_relation_inherit_from_parent(void);
 void Search_search_relation_dont_inherit(void);
 void Search_search_relation_dont_inherit_from_parent(void);
 void Search_search_relation_exclusive(void);
+void Search_search_relation_exclusive_from_parent(void);
+void Search_search_relation_union(void);
+void Search_search_relation_union_wildcard(void);
+void Search_search_relation_union_pair(void);
 
 // Testsuite 'Event'
 void Event_table_1_id_w_trigger(void);
@@ -2712,8 +2718,16 @@ bake_test_case Search_testcases[] = {
         Search_search_first_lvl_3
     },
     {
+        "search_relation_wildcard",
+        Search_search_relation_wildcard
+    },
+    {
         "search_relation_at_offset",
         Search_search_relation_at_offset
+    },
+    {
+        "search_relation_inherit_from_parent",
+        Search_search_relation_inherit_from_parent
     },
     {
         "search_relation_dont_inherit",
@@ -2726,6 +2740,22 @@ bake_test_case Search_testcases[] = {
     {
         "search_relation_exclusive",
         Search_search_relation_exclusive
+    },
+    {
+        "search_relation_exclusive_from_parent",
+        Search_search_relation_exclusive_from_parent
+    },
+    {
+        "search_relation_union",
+        Search_search_relation_union
+    },
+    {
+        "search_relation_union_wildcard",
+        Search_search_relation_union_wildcard
+    },
+    {
+        "search_relation_union_pair",
+        Search_search_relation_union_pair
     }
 };
 
@@ -10827,7 +10857,7 @@ static bake_test_suite suites[] = {
         "Search",
         NULL,
         NULL,
-        18,
+        24,
         Search_testcases
     },
     {

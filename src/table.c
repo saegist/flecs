@@ -648,6 +648,10 @@ void flecs_table_records_unregister(
             ECS_INTERNAL_ERROR, NULL);
         (void)id;
 
+        if (idr->flags & EcsIdAcyclic) {
+            flecs_trav_table_clear(world, ECS_PAIR_FIRST(id), table);
+        }
+
         ecs_table_cache_remove(&idr->cache, table, &tr->hdr);
         idr->generation ++;
         flecs_id_record_release(world, idr);
@@ -1186,7 +1190,7 @@ void flecs_table_mark_dirty(
     ecs_assert(table != NULL, ECS_INTERNAL_ERROR, NULL);
 
     if (table->dirty_state) {
-        int32_t index = ecs_search(world, table->storage_table, component, 0);
+        int32_t index = ecs_search(world, table->storage_table, component, 0, 0);
         ecs_assert(index != -1, ECS_INTERNAL_ERROR, NULL);
         table->dirty_state[index + 1] ++;
     }

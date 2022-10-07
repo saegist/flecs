@@ -18,7 +18,7 @@ struct table {
     }
 
     bool has(flecs::id_t id) const {
-        return ecs_search(m_world, m_table, id, 0) != -1;
+        return ecs_search(m_world, m_table, id, 0, 0) != -1;
     }
 
     template <typename T>

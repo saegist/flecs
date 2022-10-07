@@ -30,7 +30,7 @@ uint64_t group_by_first_id(
 static
 uint64_t group_by_rel(ecs_world_t *world, ecs_table_t *table, ecs_id_t id, void *ctx) {
     ecs_id_t match;
-    if (ecs_search(world, table, ecs_pair(id, EcsWildcard), &match) != -1) {
+    if (ecs_search(world, table, ecs_pair(id, EcsWildcard), &match, 0) != -1) {
         return ecs_pair_second(world, match);
     }
     return 0;

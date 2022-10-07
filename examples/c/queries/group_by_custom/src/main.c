@@ -16,7 +16,7 @@ uint64_t group_by_relation(ecs_world_t *ecs, ecs_table_t *table,
 
     // Use ecs_search to find the target for the relationship in the table
     ecs_id_t match;
-    if (ecs_search(ecs, table, ecs_pair(id, EcsWildcard), &match) != -1) {
+    if (ecs_search(ecs, table, ecs_pair(id, EcsWildcard), &match, 0) != -1) {
         return ecs_pair_second(ecs, match); // First, Second or Third
     }
 

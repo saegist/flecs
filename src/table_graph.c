@@ -673,7 +673,7 @@ void flecs_diff_insert_isa(
                 ecs_id_t base_id = append_from->array[j];
                 /* We still have to make sure the id isn't overridden by the
                  * current table */
-                if (ecs_search(world, table, base_id, NULL) == -1) {
+                if (ecs_search(world, table, base_id, 0, 0) == -1) {
                     ecs_vec_append_t(a, append_to, ecs_id_t)[0] = base_id;
                 }
             }
@@ -690,7 +690,7 @@ void flecs_diff_insert_isa(
             continue;
         }
 
-        if (ecs_search(world, table, id, NULL) == -1) {
+        if (ecs_search(world, table, id, 0, 0) == -1) {
             ecs_vec_append_t(a, append_to, ecs_id_t)[0] = id;
         }
     }

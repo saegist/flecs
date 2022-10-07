@@ -448,7 +448,7 @@ int32_t ecs_iter_find_column(
 {
     ecs_check(it->flags & EcsIterIsValid, ECS_INVALID_PARAMETER, NULL);
     ecs_check(it->table != NULL, ECS_INVALID_PARAMETER, NULL);
-    return ecs_search(it->real_world, it->table, component, 0);
+    return ecs_search(it->real_world, it->table, component, 0, 0);
 error:
     return -1;
 }

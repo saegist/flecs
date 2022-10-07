@@ -313,22 +313,33 @@ void ecs_world_stats_get(
     int32_t i, count = world->stage_count;
     ecs_trav_stats_t entity_down = {0};
     ecs_trav_stats_t table_down = {0};
+    ecs_trav_stats_t up_cache = {0};
+    int32_t entity_down_count = 0;
+    int32_t table_down_count = 0;
+    int32_t up_cache_count = 0;
     for (i = 0; i < count; i ++) {
         ecs_stage_t *stage = &world->stages[i];
-        entity_down.cache_hit += stage->trav.entity_down_stats.cache_hit;
-        entity_down.cache_miss += stage->trav.entity_down_stats.cache_miss;
-        entity_down.entry_count += stage->trav.entity_down_stats.entry_count;
-        table_down.cache_hit += stage->trav.table_down_stats.cache_hit;
-        table_down.cache_miss += stage->trav.table_down_stats.cache_miss;
-        table_down.entry_count += stage->trav.table_down_stats.entry_count;
+        ecs_trav_cache_t *trav = &stage->trav;
+        entity_down.cache_hit += trav->entity_down_stats.cache_hit;
+        entity_down.cache_miss += trav->entity_down_stats.cache_miss;
+        table_down.cache_hit += trav->table_down_stats.cache_hit;
+        table_down.cache_miss += trav->table_down_stats.cache_miss;
+        up_cache.cache_hit += trav->up_stats.cache_hit;
+        up_cache.cache_miss += trav->up_stats.cache_miss;
+        entity_down_count += ecs_map_count(&trav->entity_down);
+        table_down_count += ecs_map_count(&trav->table_down);
+        up_cache_count += ecs_map_count(&trav->up);
     }
 
     ECS_COUNTER_RECORD(&s->trav_cache.entity_down_hit, t, entity_down.cache_hit);
     ECS_COUNTER_RECORD(&s->trav_cache.entity_down_miss, t, entity_down.cache_miss);
-    ECS_GAUGE_RECORD(&s->trav_cache.entity_down_count, t, entity_down.entry_count);
+    ECS_GAUGE_RECORD(&s->trav_cache.entity_down_count, t, entity_down_count);
     ECS_COUNTER_RECORD(&s->trav_cache.table_down_hit, t, table_down.cache_hit);
     ECS_COUNTER_RECORD(&s->trav_cache.table_down_miss, t, table_down.cache_miss);
-    ECS_GAUGE_RECORD(&s->trav_cache.table_down_count, t, table_down.entry_count);
+    ECS_GAUGE_RECORD(&s->trav_cache.table_down_count, t, table_down_count);
+    ECS_COUNTER_RECORD(&s->trav_cache.up_hit, t, up_cache.cache_hit);
+    ECS_COUNTER_RECORD(&s->trav_cache.up_miss, t, up_cache.cache_miss);
+    ECS_GAUGE_RECORD(&s->trav_cache.up_count, t, up_cache_count);
 
     int64_t outstanding_allocs = ecs_os_api_malloc_count + 
         ecs_os_api_calloc_count - ecs_os_api_free_count;

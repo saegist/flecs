@@ -85,7 +85,7 @@ uint64_t flecs_query_default_group_by(
     (void)ctx;
 
     ecs_id_t match;
-    if (ecs_search(world, table, ecs_pair(id, EcsWildcard), &match) != -1) {
+    if (ecs_search(world, table, ecs_pair(id, EcsWildcard), &match, 0) != -1) {
         return ecs_pair_second(world, match);
     }
     return 0;
@@ -848,7 +848,7 @@ void flecs_query_set_table_match(
                 int32_t field = terms[i].field_index;
                 ecs_id_t id = it->ids[field];
                 ecs_id_t bs_id = ECS_TOGGLE | id;
-                int32_t bs_index = ecs_search(world, table, bs_id, 0);
+                int32_t bs_index = ecs_search(world, table, bs_id, 0, 0);
 
                 if (bs_index != -1) {
                     flecs_bitset_term_t *bc = ecs_vector_add(
@@ -1056,7 +1056,7 @@ void flecs_query_build_sorted_table_range(
 
         int32_t index = -1;
         if (id) {
-            index = ecs_search(world, table->storage_table, id, 0);
+            index = ecs_search(world, table->storage_table, id, 0, 0);
         }
 
         if (index != -1) {
@@ -1254,7 +1254,7 @@ void flecs_query_sort_tables(
                 ecs_table_t *storage_table = table->storage_table;
                 if (storage_table) {
                     column = ecs_search(world, storage_table, 
-                        order_by_component, NULL);
+                        order_by_component, 0, 0);
                 }
 
                 if (column == -1) {

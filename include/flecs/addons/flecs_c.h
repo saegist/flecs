@@ -416,7 +416,7 @@
     ecs_has_id(world, entity, ecs_pair(first, second))
 
 #define ecs_owns_id(world, entity, id)\
-    (ecs_search(world, ecs_get_table(world, entity), id, 0) != -1)
+    (ecs_search(world, ecs_get_table(world, entity), id, 0, 0) != -1)
 
 #define ecs_owns_pair(world, entity, first, second)\
     ecs_owns_id(world, entity, ecs_pair(first, second))

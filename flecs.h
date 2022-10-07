@@ -7844,7 +7844,8 @@ int32_t ecs_search(
     const ecs_world_t *world,
     const ecs_table_t *table,
     ecs_id_t id,
-    ecs_id_t *id_out);
+    ecs_id_t *id_out,
+    struct ecs_table_record_t **tr_out);
 
 /** Search for component id in table type starting from an offset.
  * This operation is the same as ecs_search, but starts searching from an offset
@@ -7928,6 +7929,17 @@ int32_t ecs_search_relation(
     ecs_id_t id,
     ecs_entity_t rel,
     ecs_flags32_t flags, /* EcsSelf and/or EcsUp */
+    ecs_entity_t *subject_out,
+    ecs_id_t *id_out,
+    struct ecs_table_record_t **tr_out);
+
+int32_t ecs_search_relation_new(
+    const ecs_world_t *world,
+    const ecs_table_t *table,
+    int32_t offset,
+    ecs_id_t id,
+    ecs_entity_t trav,
+    ecs_flags32_t flags,
     ecs_entity_t *subject_out,
     ecs_id_t *id_out,
     struct ecs_table_record_t **tr_out);
@@ -8727,7 +8739,7 @@ int ecs_value_move_ctor(
     ecs_has_id(world, entity, ecs_pair(first, second))
 
 #define ecs_owns_id(world, entity, id)\
-    (ecs_search(world, ecs_get_table(world, entity), id, 0) != -1)
+    (ecs_search(world, ecs_get_table(world, entity), id, 0, 0) != -1)
 
 #define ecs_owns_pair(world, entity, first, second)\
     ecs_owns_id(world, entity, ecs_pair(first, second))
@@ -10570,6 +10582,9 @@ typedef struct ecs_world_stats_t {
         ecs_metric_t table_down_hit;
         ecs_metric_t table_down_miss;
         ecs_metric_t table_down_count;
+        ecs_metric_t up_hit;
+        ecs_metric_t up_miss;
+        ecs_metric_t up_count;
     } trav_cache;
 
     int32_t last_;
@@ -21488,7 +21503,7 @@ struct table {
     }
 
     bool has(flecs::id_t id) const {
-        return ecs_search(m_world, m_table, id, 0) != -1;
+        return ecs_search(m_world, m_table, id, 0, 0) != -1;
     }
 
     template <typename T>

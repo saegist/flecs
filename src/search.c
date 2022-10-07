@@ -1,7 +1,7 @@
 #include "private_api.h"
 
 static
-int32_t type_search(
+int32_t flecs_type_search(
     const ecs_table_t *table,
     ecs_id_record_t *idr,
     ecs_id_t *ids,
@@ -22,7 +22,7 @@ int32_t type_search(
 }
 
 static
-int32_t type_offset_search(
+int32_t flecs_type_offset_search(
     int32_t offset,
     ecs_id_t id,
     ecs_id_t *ids,
@@ -47,136 +47,139 @@ int32_t type_offset_search(
     return -1;
 }
 
-static
-bool type_can_inherit_id(
-    const ecs_world_t *world,
-    const ecs_table_t *table,
-    const ecs_id_record_t *idr,
-    ecs_id_t id)
-{
-    if (idr->flags & EcsIdDontInherit) {
-        return false;
-    }
-    if (idr->flags & EcsIdExclusive) {
-        if (ECS_HAS_ID_FLAG(id, PAIR)) {
-            ecs_entity_t er = ECS_PAIR_FIRST(id);
-            if (flecs_table_record_get(
-                world, table, ecs_pair(er, EcsWildcard))) 
-            {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-static
-int32_t type_search_relation(
-    const ecs_world_t *world,
-    const ecs_table_t *table,
-    int32_t offset,
-    ecs_id_t id,
-    ecs_id_record_t *idr,
-    ecs_id_t rel,
-    ecs_id_record_t *idr_r,
-    bool self,
-    ecs_entity_t *subject_out,
-    ecs_id_t *id_out,
-    ecs_table_record_t **tr_out)
-{
-    ecs_type_t type = table->type;
-    ecs_id_t *ids = type.array;
-    int32_t count = type.count;
-
-    if (self) {
-        if (offset) {
-            int32_t r = type_offset_search(offset, id, ids, count, id_out);
-            if (r != -1) {
-                return r;
-            }
-        } else {
-            int32_t r = type_search(table, idr, ids, id_out, tr_out);
-            if (r != -1) {
-                return r;
-            }
-        }
-    }
-
-    ecs_flags32_t flags = table->flags;
-    if ((flags & EcsTableHasPairs) && rel) {
-        bool is_a = rel == ecs_pair(EcsIsA, EcsWildcard);
-        if (is_a) {
-            if (!(flags & EcsTableHasIsA)) {
-                return -1;
-            }
-            if (!type_can_inherit_id(world, table, idr, id)) {
-                return -1;
-            }
-            idr_r = world->idr_isa_wildcard;
-        }
-
-        if (!idr_r) {
-            idr_r = flecs_id_record_get(world, rel);
-            if (!idr_r) {
-                return -1;
-            }
-        }
-
-        ecs_id_t id_r;
-        int32_t r, r_column;
-        if (offset) {
-            r_column = type_offset_search(offset, rel, ids, count, &id_r);
-        } else {
-            r_column = type_search(table, idr_r, ids, &id_r, 0);
-        }
-        while (r_column != -1) {
-            ecs_entity_t obj = ECS_PAIR_SECOND(id_r);
-            ecs_assert(obj != 0, ECS_INTERNAL_ERROR, NULL);
-
-            ecs_record_t *rec = flecs_entities_get_any(world, obj);
-            ecs_assert(rec != NULL, ECS_INTERNAL_ERROR, NULL);
-
-            ecs_table_t *obj_table = rec->table;
-            if (obj_table) {
-                ecs_assert(obj_table != table, ECS_CYCLE_DETECTED, NULL);
-
-                r = type_search_relation(world, obj_table, 0, id, idr, 
-                    rel, idr_r, true, subject_out, id_out, tr_out);
-                if (r != -1) {
-                    if (subject_out && !subject_out[0]) {
-                        subject_out[0] = ecs_get_alive(world, obj);
-                    }
-                    return r_column;
-                }
-
-                if (!is_a) {
-                    r = type_search_relation(world, obj_table, 0, id, idr, 
-                        ecs_pair(EcsIsA, EcsWildcard), world->idr_isa_wildcard, 
-                            true, subject_out, id_out, tr_out);
-                    if (r != -1) {
-                        if (subject_out && !subject_out[0]) {
-                            subject_out[0] = ecs_get_alive(world, obj);
-                        }
-                        return r_column;
-                    }
-                }
-            }
-
-            r_column = type_offset_search(r_column + 1, rel, ids, count, &id_r);
-        }
-    }
-
-    return -1;
-}
-
 int32_t ecs_search_relation(
     const ecs_world_t *world,
     const ecs_table_t *table,
     int32_t offset,
     ecs_id_t id,
-    ecs_entity_t rel,
+    ecs_entity_t trav,
     ecs_flags32_t flags,
     ecs_entity_t *subject_out,
+    ecs_id_t *id_out,
+    struct ecs_table_record_t **tr_out)
+{
+    if (!table) return -1;
+
+    flags = flags ? flags : (EcsSelf|EcsUp);
+
+    if (flags & EcsSelf) {
+        int32_t col;
+        if (!offset) {
+            col = ecs_search(world, table, id, id_out, tr_out);
+        } else {
+            col = ecs_search_offset(world, table, offset, id, id_out);
+        }
+
+        if (col != -1) {
+            if (subject_out) subject_out[0] = 0;
+            return col;
+        }
+
+        if (!(flags & EcsUp)) {
+            return -1;
+        }
+    }
+
+    const ecs_trav_up_t* up;
+    if (offset) {
+        /* Offset queries are not cached, so manually iterate targets for the
+         * relationship and query the cache */
+        ecs_id_record_t *idr_trav = flecs_id_record_get(world, 
+            ecs_pair(trav, EcsWildcard));
+        if (!idr_trav) {
+            return -1;
+        }
+
+        const ecs_table_record_t *tr = flecs_id_record_get_table(
+            idr_trav, table);
+        if (!tr) {
+            return -1;
+        }
+
+        if (offset > tr->column) {
+            const ecs_type_t *type = &table->type;
+            int32_t i = offset, end = tr->column + tr->count;
+            for (; i < end; i ++) {
+                ecs_id_t pair = type->array[offset];
+                if (ECS_PAIR_FIRST(pair) != trav) {
+                    return -1;
+                }
+
+                ecs_entity_t tgt = ecs_pair_second(world, pair);
+                ecs_assert(tgt != 0, ECS_INTERNAL_ERROR, NULL);
+
+                ecs_table_t *tgt_table = ecs_get_table(world, tgt);
+                if (tgt_table) {
+                    /* Recursively search. Include EcsSelf in search mask, as
+                     * target table could have the requested id.
+                     * Recursion will never go more than one level deep because
+                     * we're passing 0 to offset. */
+                    if (ecs_search_relation(world, tgt_table, 0, id, trav, 
+                        EcsSelf|EcsUp, subject_out, id_out, tr_out) != -1)
+                    {
+                        if (subject_out) {
+                            *subject_out = tgt;
+                        }
+                        return i;
+                    }
+                }
+            }
+
+            return -1;
+        }
+
+        /* Fallthrough, if offset is smaller than the first occurrence of the
+         * relationship, querying the trav cache will return the first match */
+    }
+
+    ecs_entity_t union_first = 0;
+    ecs_id_record_t *idr = flecs_id_record_get(world, id);
+    if (ecs_id_is_pair(id) && (!idr || ((idr->flags & EcsIdUnion)))) {
+        /* If id is a (potential) union, search for (Union, Rel) instead of 
+         * (Rel, Tgt), as the target isn't stored in the table type for
+         * union relationships. */
+        union_first = ECS_PAIR_FIRST(id);
+        if (union_first != EcsUnion) {
+            id = ecs_pair(EcsUnion, union_first);
+            idr = flecs_id_record_get(world, id);
+        } else {
+            union_first = 0;
+        }
+    }
+
+    if (!idr) {
+        return -1;
+    }
+
+    up = flecs_trav_up_w_idr((ecs_world_t*)world, trav, table, idr);
+    if (!up) {
+        return -1;
+    }
+
+    const ecs_table_record_t *tr = up->tr;
+    if (subject_out) {
+        *subject_out = up->source;
+    }
+
+    if (id_out) {
+        if (union_first) {
+            *id_out = ecs_pair(union_first, EcsWildcard);
+        } else {
+            *id_out = up->id;
+        }
+    }
+
+    if (tr_out) {
+        *tr_out = (ecs_table_record_t*)tr;
+    }
+
+    return up->column;
+}
+
+int32_t ecs_search(
+    const ecs_world_t *world,
+    const ecs_table_t *table,
+    ecs_id_t id,
     ecs_id_t *id_out,
     struct ecs_table_record_t **tr_out)
 {
@@ -185,36 +188,6 @@ int32_t ecs_search_relation(
     ecs_poly_assert(world, ecs_world_t);
     ecs_assert(id != 0, ECS_INVALID_PARAMETER, NULL);
 
-    flags = flags ? flags : (EcsSelf|EcsUp);
-
-    if (subject_out) subject_out[0] = 0;
-    if (!(flags & EcsUp)) {
-        return ecs_search_offset(world, table, offset, id, id_out);
-    }
-
-    ecs_id_record_t *idr = flecs_query_id_record_get(world, id);
-    if (!idr) {
-        return -1;
-    }
-
-    int32_t result = type_search_relation(world, table, offset, id, idr, 
-        ecs_pair(rel, EcsWildcard), NULL, flags & EcsSelf, subject_out, 
-            id_out, tr_out);
-
-    return result;
-}
-
-int32_t ecs_search(
-    const ecs_world_t *world,
-    const ecs_table_t *table,
-    ecs_id_t id,
-    ecs_id_t *id_out)
-{
-    if (!table) return -1;
-
-    ecs_poly_assert(world, ecs_world_t);
-    ecs_assert(id != 0, ECS_INVALID_PARAMETER, NULL);
-
     ecs_id_record_t *idr = flecs_query_id_record_get(world, id);
     if (!idr) {
         return -1;
@@ -222,7 +195,7 @@ int32_t ecs_search(
 
     ecs_type_t type = table->type;
     ecs_id_t *ids = type.array;
-    return type_search(table, idr, ids, id_out, NULL);
+    return flecs_type_search(table, idr, ids, id_out, tr_out);
 }
 
 int32_t ecs_search_offset(
@@ -233,7 +206,7 @@ int32_t ecs_search_offset(
     ecs_id_t *id_out)
 {
     if (!offset) {
-        return ecs_search(world, table, id, id_out);
+        return ecs_search(world, table, id, id_out, 0);
     }
 
     if (!table) return -1;
@@ -243,7 +216,7 @@ int32_t ecs_search_offset(
     ecs_type_t type = table->type;
     ecs_id_t *ids = type.array;
     int32_t count = type.count;
-    return type_offset_search(offset, id, ids, count, id_out);
+    return flecs_type_offset_search(offset, id, ids, count, id_out);
 }
 
 static

@@ -15,20 +15,6 @@
 // query grouped by world cell, and use group iterators to only iterate the
 // necessary cells.
 
-uint64_t group_by_relation(ecs_world_t *ecs, ecs_table_t *table, 
-    ecs_entity_t id, void *ctx) 
-{
-    (void)ctx; // marks ctx as unused, avoids compiler warnings
-
-    // Use ecs_search to find the target for the relationship in the table
-    ecs_id_t match;
-    if (ecs_search(ecs, table, ecs_pair(id, EcsWildcard), &match) != -1) {
-        return ecs_pair_second(ecs, match); // World cell is 2nd element of pair
-    }
-
-    return 0;
-}
-
 int main(int argc, char *argv[]) {
     ecs_world_t *ecs = ecs_init_w_args(argc, argv);
 
@@ -80,7 +66,6 @@ int main(int argc, char *argv[]) {
         .filter.terms = {
             { .id = Npc }
         },
-        .group_by = group_by_relation,
         .group_by_id = WorldCell
     });
 

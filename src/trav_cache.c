@@ -5,9 +5,22 @@ ecs_trav_down_t* flecs_trav_table_down_build(
     ecs_world_t *world,
     ecs_trav_cache_t *cache,
     ecs_trav_down_t *dst,
+    const ecs_trav_key_t *key,
     ecs_entity_t root,
     ecs_entity_t trav,
-    ecs_table_t *table,
+    const ecs_table_t *table,
+    ecs_id_record_t *idr_with,
+    uint32_t generation);
+
+static
+void flecs_trav_entity_isa_build(
+    ecs_world_t *world,
+    ecs_trav_cache_t *cache,
+    ecs_trav_down_t *dst,
+    const ecs_trav_key_t *key,
+    ecs_entity_t root,
+    ecs_entity_t trav,
+    ecs_entity_t entity,
     ecs_id_record_t *idr_with,
     uint32_t generation);
 
@@ -26,58 +39,102 @@ ecs_trav_cache_t* flecs_trav_cache_get(
 }
 
 static
-ecs_trav_down_t* flecs_trav_ensure_down_cache(
-    ecs_allocator_t *a,
-    ecs_map_t *down_for,
-    ecs_entity_t trav,
-    uint64_t tgt,
-    ecs_id_t with,
-    ecs_trav_stats_t *stats)
+int32_t flecs_trav_compress_trav(
+    ecs_trav_cache_t *cache,
+    ecs_entity_t trav)
 {
-    ecs_id_t id = ecs_pair(trav, tgt);
-    ecs_map_init_if(down_for, ecs_trav_down_for_t, a, 1);
-    ecs_trav_down_for_t *df = ecs_map_ensure(down_for, ecs_trav_down_for_t, id);
-    ecs_map_init_if(&df->with, ecs_trav_down_t, a, 1);
-    int32_t count = ecs_map_count(&df->with);
-    ecs_trav_down_t *result = ecs_map_ensure(&df->with, ecs_trav_down_t, with);
-    stats->entry_count += count != ecs_map_count(&df->with);
+    ecs_trav_id_index_t *index = flecs_sparse_ensure(
+        &cache->trav_map, ecs_trav_id_index_t, (uint32_t)trav);
+    int32_t result = index->value;
+    if (!result) {
+        result = index->value = flecs_sparse_count(&cache->trav_map);
+    }
     return result;
+}
+
+static
+int32_t flecs_trav_compress_with(
+    ecs_trav_cache_t *cache,
+    ecs_id_t with)
+{
+    ecs_trav_id_index_t *index = ecs_map_ensure(
+        &cache->with_map, ecs_trav_id_index_t, with);
+    int32_t result = index->value;
+    if (!result) {
+        result = index->value = ecs_map_count(&cache->with_map);
+    }
+    return result;
+}
+
+ecs_trav_key_t flecs_trav_get_key(
+    ecs_trav_cache_t *cache,
+    uint64_t id,
+    ecs_entity_t trav,
+    ecs_id_t with)
+{
+    return (ecs_trav_key_t) {
+        .id = id,
+        .trav = flecs_trav_compress_trav(cache, trav),
+        .with = flecs_trav_compress_with(cache, with)
+    };
+}
+
+static
+ecs_trav_down_t* flecs_trav_ensure_down_cache(
+    ecs_trav_cache_t *cache,
+    ecs_sparse_t *down_for,
+    const ecs_trav_key_t *key)
+{
+    ecs_trav_down_for_t *df = flecs_sparse_ensure(
+        down_for, ecs_trav_down_for_t, key->id);
+
+    int32_t key_trav = key->trav;
+    if (key_trav >= ecs_vec_count(&df->trav)) {
+        ecs_vec_set_count_t(cache->allocator, &df->trav, 
+            ecs_trav_down_for_trav_t, key_trav);
+    }
+
+    ecs_trav_down_for_trav_t *dft = ecs_vec_get_t(&df->trav, 
+        ecs_trav_down_for_trav_t, key_trav);
+
+    int32_t key_with = key->with;
+    if (key_with >= ecs_vec_count(&dft->with)) {
+        ecs_vec_set_count_t(cache->allocator, &dft->with, 
+            ecs_trav_down_t, key_with);
+    }
+
+    return ecs_vec_get_t(&dft->with, ecs_trav_down_t, key_with);
 }
 
 static
 ecs_trav_up_t* flecs_trav_up_ensure(
     ecs_trav_cache_t *cache,
     ecs_entity_t trav,
-    ecs_table_t *table,
-    ecs_id_t with)
+    const ecs_table_t *table,
+    ecs_id_t with,
+    ecs_trav_stats_t *stats)
 {
     ecs_id_t id = ecs_pair(trav, table->id);
-    ecs_map_init_if(&cache->up, ecs_trav_up_for_t, cache->allocator, 1);
+    ecs_map_init_w_params_if(&cache->up, &cache->trav_up_for_params);
     ecs_trav_up_for_t *df = ecs_map_ensure(&cache->up, ecs_trav_up_for_t, id);
-    ecs_map_init_if(&df->with, ecs_trav_up_t, cache->allocator, 1);
+    ecs_map_init_w_params_if(&df->with, &cache->trav_up_params);
     return ecs_map_ensure(&df->with, ecs_trav_up_t, with);
 }
 
 static
 ecs_trav_down_t* flecs_trav_table_ensure(
     ecs_trav_cache_t *cache,
-    ecs_entity_t trav,
-    ecs_table_t *table,
-    ecs_id_t with)
+    const ecs_trav_key_t *key)
 {
-    return flecs_trav_ensure_down_cache(cache->allocator, &cache->table_down, 
-        trav, table->id, with, &cache->table_down_stats);
+    return flecs_trav_ensure_down_cache(cache, &cache->table_down, key);
 }
 
 static
 ecs_trav_down_t* flecs_trav_entity_ensure(
     ecs_trav_cache_t *cache,
-    ecs_entity_t trav,
-    ecs_entity_t entity,
-    ecs_id_t with)
+    const ecs_trav_key_t *key)
 {
-    return flecs_trav_ensure_down_cache(cache->allocator, &cache->entity_down, 
-        trav, entity, with, &cache->entity_down_stats);
+    return flecs_trav_ensure_down_cache(cache, &cache->entity_down, key);
 }
 
 static
@@ -110,36 +167,27 @@ void flecs_trav_append(
 }
 
 static
-void flecs_trav_entity_isa_build(
-    ecs_world_t *world,
-    ecs_trav_cache_t *cache,
-    ecs_trav_down_t *dst,
-    ecs_entity_t root,
-    ecs_entity_t trav,
-    ecs_entity_t entity,
-    ecs_id_record_t *idr_with,
-    uint32_t generation);
-
-static
 void flecs_trav_log_entity(
     ecs_world_t *world,
     ecs_entity_t entity,
     ecs_entity_t trav,
     ecs_id_t id,
+    const char *name,
     bool miss)
 {
     (void)entity;
     (void)trav;
+    (void)name;
     if (ecs_should_log_2()) {
         char *id_str = ecs_id_str(world, id);
         if (miss) {
-            ecs_dbg_2("#[magenta]down cache#[reset]: "
+            ecs_dbg_2("#[magenta]%s cache#[reset]: "
                 "#[red]cache miss#[reset] for trav '%s', id '%s', entity '%u'",
-                ecs_get_name(world, trav), id_str, (uint32_t)entity);
+                name, ecs_get_name(world, trav), id_str, (uint32_t)entity);
         } else {
-            ecs_dbg_2("#[magenta]down cache#[reset]: "
+            ecs_dbg_2("#[magenta]%s cache#[reset]: "
                 "#[green]cache hit#[reset] for trav '%s', id '%s', entity '%u'",
-                ecs_get_name(world, trav), id_str, (uint32_t)entity);
+                name, ecs_get_name(world, trav), id_str, (uint32_t)entity);
         }
         ecs_os_free(id_str);
     }
@@ -148,23 +196,25 @@ void flecs_trav_log_entity(
 static
 void flecs_trav_log_table(
     ecs_world_t *world,
-    ecs_table_t *table,
+    const ecs_table_t *table,
     ecs_entity_t trav,
     ecs_id_t id,
+    const char *name,
     bool miss)
 {
     (void)table;
     (void)trav;
+    (void)name;
     if (ecs_should_log_2()) {
         char *id_str = ecs_id_str(world, id);
         if (miss) {
-            ecs_dbg_2("#[magenta]down cache#[reset]: "
+            ecs_dbg_2("#[magenta]%s cache#[reset]: "
                 "#[red]cache miss#[reset] for trav '%s', id '%s', table '%u'",
-                ecs_get_name(world, trav), id_str, (uint32_t)table->id);
+                name, ecs_get_name(world, trav), id_str, (uint32_t)table->id);
         } else {
-            ecs_dbg_2("#[magenta]down cache#[reset]: "
+            ecs_dbg_2("#[magenta]%s cache#[reset]: "
                 "#[green]cache hit#[reset] for trav '%s', id '%s', table '%u'",
-                ecs_get_name(world, trav), id_str, (uint32_t)table->id);
+                name, ecs_get_name(world, trav), id_str, (uint32_t)table->id);
         }
         ecs_os_free(id_str);
     }
@@ -175,14 +225,14 @@ ecs_trav_down_t* flecs_trav_entity_down_build(
     ecs_world_t *world,
     ecs_trav_cache_t *cache,
     ecs_trav_down_t *dst,
+    const ecs_trav_key_t *key,
     ecs_entity_t root,
     ecs_entity_t trav,
     ecs_entity_t entity,
     ecs_id_record_t *idr_with,
     uint32_t generation)
 {
-    ecs_trav_down_t *src = flecs_trav_entity_ensure(
-        cache, trav, entity, idr_with->id);
+    ecs_trav_down_t *src = flecs_trav_entity_ensure(cache, key);
     ecs_assert(src != NULL, ECS_INTERNAL_ERROR, NULL);
     ecs_id_t with = idr_with->id;
     ecs_allocator_t *a = cache->allocator;
@@ -192,19 +242,19 @@ ecs_trav_down_t* flecs_trav_entity_down_build(
     }
 
     if (src->generation == generation) {
-        flecs_trav_log_entity(world, entity, trav, idr_with->id, false);
+        flecs_trav_log_entity(world, entity, trav, idr_with->id, "down", false);
         cache->entity_down_stats.cache_hit ++;
         if (dst == src) {
             return dst;
         }
     } else {
-        flecs_trav_log_entity(world, entity, trav, idr_with->id, true);
+        flecs_trav_log_entity(world, entity, trav, idr_with->id, "down", true);
         ecs_log_push_2();
         cache->entity_down_stats.cache_miss ++;
         ecs_vec_reset_t(a, &src->elems, ecs_trav_elem_t);
 
         flecs_trav_entity_isa_build(
-            world, cache, dst, root, trav, entity, idr_with, generation);
+            world, cache, dst, key, root, trav, entity, idr_with, generation);
 
         ecs_id_record_t *idr = flecs_id_record_get(world, 
             ecs_pair(trav, entity));
@@ -259,7 +309,7 @@ ecs_trav_down_t* flecs_trav_entity_down_build(
             ecs_trav_elem_t *elem = ecs_vec_get_t(
                 &src->elems, ecs_trav_elem_t, t);
             if (!elem->leaf) {
-                flecs_trav_table_down_build(world, cache, src, root, trav, 
+                flecs_trav_table_down_build(world, cache, src, key, root, trav, 
                     elem->table, idr_with, generation);
             }
         }
@@ -277,6 +327,7 @@ void flecs_trav_entity_isa_build(
     ecs_world_t *world,
     ecs_trav_cache_t *cache,
     ecs_trav_down_t *dst,
+    const ecs_trav_key_t *key,
     ecs_entity_t root,
     ecs_entity_t trav,
     ecs_entity_t entity,
@@ -317,8 +368,8 @@ void flecs_trav_entity_isa_build(
                     if (is_root) {
                         root = e;
                     }
-                    flecs_trav_entity_down_build(world, cache, dst, root, trav, 
-                        e, idr_with, generation);
+                    flecs_trav_entity_down_build(world, cache, dst, key, root, 
+                        trav, e, idr_with, generation);
                 }
             }
         }
@@ -330,9 +381,10 @@ ecs_trav_down_t* flecs_trav_table_down_build(
     ecs_world_t *world,
     ecs_trav_cache_t *cache,
     ecs_trav_down_t *dst,
+    const ecs_trav_key_t *key,
     ecs_entity_t root,
     ecs_entity_t trav,
-    ecs_table_t *table,
+    const ecs_table_t *table,
     ecs_id_record_t *idr_with,
     uint32_t generation)
 {
@@ -342,8 +394,7 @@ ecs_trav_down_t* flecs_trav_table_down_build(
     }
 
     ecs_assert(idr_with != NULL, ECS_INTERNAL_ERROR, NULL);
-    ecs_trav_down_t *src = flecs_trav_table_ensure(
-        cache, trav, table, idr_with->id);
+    ecs_trav_down_t *src = flecs_trav_table_ensure(cache, key);
     ecs_assert(src != NULL, ECS_INTERNAL_ERROR, NULL);
     ecs_allocator_t *a = cache->allocator;
 
@@ -352,13 +403,13 @@ ecs_trav_down_t* flecs_trav_table_down_build(
     }
 
     if (src->generation == generation) {
-        flecs_trav_log_table(world, table, trav, idr_with->id, false);
+        flecs_trav_log_table(world, table, trav, idr_with->id, "down", false);
         cache->table_down_stats.cache_hit ++;
         if (dst == src) {
             return dst;
         }
     } else {
-        flecs_trav_log_table(world, table, trav, idr_with->id, true);
+        flecs_trav_log_table(world, table, trav, idr_with->id, "down", true);
         ecs_log_push_2();
         cache->table_down_stats.cache_miss ++;
         ecs_vec_reset_t(a, &src->elems, ecs_trav_elem_t);
@@ -382,7 +433,7 @@ ecs_trav_down_t* flecs_trav_table_down_build(
 
                 ecs_assert(root != 0, ECS_INTERNAL_ERROR, NULL);
                 flecs_trav_entity_down_build(world, cache, src,
-                    root, trav, entity, idr_with, generation);
+                    key, root, trav, entity, idr_with, generation);
             }
         }
 
@@ -402,7 +453,7 @@ ecs_trav_up_t* flecs_trav_up_build(
     ecs_trav_cache_t *cache,
     ecs_trav_up_t *dst,
     ecs_entity_t trav,
-    ecs_table_t *table,
+    const ecs_table_t *table,
     ecs_id_record_t *idr_trav,
     ecs_id_record_t *idr_with,
     uint32_t generation)
@@ -411,25 +462,53 @@ ecs_trav_up_t* flecs_trav_up_build(
     if (!(tr = flecs_id_record_get_table(idr_trav, table))) {
         return NULL;
     }
-    
+
     ecs_assert(idr_with != NULL, ECS_INTERNAL_ERROR, NULL);
     ecs_trav_up_t *src = flecs_trav_up_ensure(
-        cache, trav, table, idr_with->id);
+        cache, trav, table, idr_with->id, &cache->up_stats);
     ecs_assert(src != NULL, ECS_INTERNAL_ERROR, NULL);
 
     if (!dst) {
         dst = src;
     }
 
+    int32_t column = -1;
     if (src->generation == generation) {
+        flecs_trav_log_table(world, table, trav, idr_with->id, "up", false);
+        cache->up_stats.cache_hit ++;
         if (dst == src) {
             goto done;
         }
     } else {
+        flecs_trav_log_table(world, table, trav, idr_with->id, "up", true);
+        cache->up_stats.cache_miss ++;
+
         ecs_id_t *ids = table->type.array;
-        int32_t i = tr->column, end = i + tr->count;
-        for (; i < end; i ++) {
-            ecs_id_t id = ids[i];
+        column = tr->column; 
+        int32_t end = column + tr->count;
+        
+        ecs_id_record_t *idr_excl = NULL;
+        ecs_flags32_t id_flags = idr_with->flags;
+        ecs_id_t with = idr_with->id;
+        bool dont_inherit = false;
+
+        if (trav == EcsIsA) {
+            if (id_flags & EcsIdDontInherit) {
+                column = end; /* Can't inherit, don't search IsA */
+            } else if (id_flags & EcsIdExclusive && ECS_IS_PAIR(with)) {
+                ecs_entity_t er = ECS_PAIR_FIRST(with);
+                idr_excl = flecs_id_record_get(world, ecs_pair(er, EcsWildcard));
+                ecs_assert(idr_excl != NULL, ECS_INTERNAL_ERROR, NULL);
+                if (flecs_id_record_get_table(idr_excl, table)) {
+                    /* Table already has an instance of an exclusive 
+                     * relationship, can't inherit */
+                    column = end;
+                }
+            }
+        }
+
+        for (; column < end; column ++) {
+            ecs_id_t id = ids[column];
             ecs_entity_t tgt = ecs_pair_second(world, id);
             ecs_record_t *tgt_record = flecs_entities_get(world, tgt);
             ecs_table_t *tgt_table;
@@ -437,16 +516,39 @@ ecs_trav_up_t* flecs_trav_up_build(
                 continue;
             }
 
-            tr_with = flecs_id_record_get_table(
-                idr_with, tgt_table);
+            tr_with = flecs_id_record_get_table(idr_with, tgt_table);
             if (tr_with) { /* Table has id */
                 src->source = tgt;
                 src->tr = tr_with;
                 src->generation = generation;
+                src->column = column;
+                src->id = tgt_table->type.array[tr_with->column];
                 break;
             }
 
-            if (trav != EcsIsA && tgt_table->flags & EcsTableHasIsA) {
+            if (trav != EcsIsA && (tgt_table->flags & EcsTableHasIsA)) {
+                if (dont_inherit) {
+                    continue;
+                }
+
+                if (id_flags & EcsIdDontInherit) {
+                    dont_inherit = true;
+                    continue;
+                }
+
+                if ((id_flags & EcsIdExclusive) && ECS_HAS_ID_FLAG(id, PAIR)) {
+                    if (!idr_excl) {
+                        ecs_entity_t er = ECS_PAIR_FIRST(with);
+                        idr_excl = flecs_id_record_get(world, 
+                            ecs_pair(er, EcsWildcard));
+                        ecs_assert(idr_excl != NULL, ECS_INTERNAL_ERROR, NULL);
+                        if (flecs_id_record_get_table(idr_excl, table)) {
+                            dont_inherit = true;
+                            continue;
+                        }
+                    }
+                }
+
                 ecs_id_record_t *idr_isa = world->idr_isa_wildcard;
                 if (flecs_trav_up_build(world, cache, src, EcsIsA, tgt_table,
                     idr_isa, idr_with, idr_isa->generation))
@@ -461,18 +563,23 @@ ecs_trav_up_t* flecs_trav_up_build(
                 break;
             }
         }
-        if (i == end) {
+        if (column == end) {
+            column = -1;
             src->source = 0;
+            src->id = 0;
             src->tr = NULL;
             src->generation = generation;
+            src->column = -1;
         }
     }
 
     if (dst != src) {
         dst->source = src->source;
+        dst->id = src->id;
         dst->tr = src->tr;
         dst->generation = generation;
     }
+    dst->column = column;
 
 done:
     if (dst->source) {
@@ -485,53 +592,23 @@ done:
 static
 void flecs_trav_fini_down(
     ecs_allocator_t *a,
-    ecs_map_t *down_cache)
+    ecs_sparse_t *down_cache)
 {
-    if (ecs_map_is_initialized(down_cache)) {
-        ecs_map_iter_t it = ecs_map_iter(down_cache);
-        ecs_trav_down_for_t *down_for;
-        while ((down_for = ecs_map_next(&it, ecs_trav_down_for_t, 0))) {
-            if (ecs_map_is_initialized(&down_for->with)) {
-                ecs_map_iter_t mit = ecs_map_iter(&down_for->with);
-                ecs_trav_down_t *down;
-                while ((down = ecs_map_next(&mit, ecs_trav_down_t, 0))) {
-                    ecs_vec_fini_t(a, &down->elems, ecs_trav_elem_t);
-                }
-                ecs_map_fini(&down_for->with);
-            }
-        }
-        ecs_map_fini(down_cache);
-    }
+
 }
 
 static
-void flecs_trav_cache_entity_clear(
-    ecs_trav_cache_t *cache,
-    ecs_entity_t trav,
-    ecs_entity_t entity)
+void flecs_trav_fini_up(
+    ecs_map_t *up_cache)
 {
-    ecs_map_t *map = &cache->entity_down;
-    if (!ecs_map_is_initialized(map)) {
-        return;
-    }
-
-    ecs_id_t pair = ecs_pair(trav, entity);
-    ecs_trav_down_for_t *down_for = ecs_map_get(map, ecs_trav_down_for_t, pair);
-    if (!down_for) {
-        return;
-    }
-
-    if (ecs_map_is_initialized(&down_for->with)) {
-        ecs_map_iter_t mit = ecs_map_iter(&down_for->with);
-        ecs_trav_down_t *down;
-        while ((down = ecs_map_next(&mit, ecs_trav_down_t, 0))) {
-            ecs_vec_fini_t(cache->allocator, &down->elems, ecs_trav_elem_t);
+    if (ecs_map_is_initialized(up_cache)) {
+        ecs_map_iter_t it = ecs_map_iter(up_cache);
+        ecs_trav_up_for_t *up_for;
+        while ((up_for = ecs_map_next(&it, ecs_trav_up_for_t, 0))) {
+            ecs_map_fini(&up_for->with);
         }
-        cache->entity_down_stats.entry_count -= ecs_map_count(&down_for->with);
-        ecs_map_fini(&down_for->with);
+        ecs_map_fini(up_cache);
     }
-
-    ecs_map_remove(map, pair);
 }
 
 const ecs_trav_down_t* flecs_trav_entity_down(
@@ -557,6 +634,7 @@ const ecs_trav_down_t* flecs_trav_entity_down_w_idr(
     ecs_id_record_t *idr_with)
 {
     ecs_assert(ecs_is_alive(world, entity), ECS_INTERNAL_ERROR, NULL);
+    ecs_assert(idr_with != NULL, ECS_INTERNAL_ERROR, NULL);
 
     if (idr_with->flags & EcsIdDontInherit) {
         return NULL; /* Don't build cache for uninheritable ids */
@@ -566,13 +644,15 @@ const ecs_trav_down_t* flecs_trav_entity_down_w_idr(
     ecs_id_record_t *idr = flecs_id_record_get(world, 
         ecs_pair(trav, EcsWildcard));
     if (!idr) {
+        /* If (trav, *) does not exist, there are no tables for it */
         return NULL;
     }
 
     flecs_process_pending_tables(world);
 
+    ecs_trav_key_t key = flecs_trav_get_key(cache, entity, trav, idr_with->id);
     ecs_trav_down_t* result = flecs_trav_entity_down_build(
-        world, cache, NULL, 0, trav, entity, idr_with, idr->generation);
+        world, cache, NULL, &key, 0, trav, entity, idr_with, idr->generation);
     ecs_assert(result != NULL, ECS_INTERNAL_ERROR, NULL);
     if (!ecs_vec_count(&result->elems)) {
         result = NULL;
@@ -583,7 +663,7 @@ const ecs_trav_down_t* flecs_trav_entity_down_w_idr(
 const ecs_trav_down_t* flecs_trav_table_down(
     ecs_world_t *world,
     ecs_entity_t trav,
-    ecs_table_t *table,
+    const ecs_table_t *table,
     ecs_id_t with)
 {
     if (!table->observed_count) {
@@ -611,8 +691,9 @@ const ecs_trav_down_t* flecs_trav_table_down(
 
     flecs_process_pending_tables(world);
 
+    ecs_trav_key_t key = flecs_trav_get_key(cache, table->id, trav, idr_with->id);
     ecs_trav_down_t *result = flecs_trav_table_down_build(
-        world, cache, NULL, 0, trav, table, idr_with, idr->generation);
+        world, cache, NULL, &key, 0, trav, table, idr_with, idr->generation);
     ecs_assert(result != NULL, ECS_INTERNAL_ERROR, NULL);
     if (!ecs_vec_count(&result->elems)) {
         result = NULL;
@@ -620,23 +701,13 @@ const ecs_trav_down_t* flecs_trav_table_down(
     return result;
 }
 
-const ecs_trav_up_t* flecs_trav_up(
+const ecs_trav_up_t* flecs_trav_up_w_idr(
     ecs_world_t *world,
     ecs_entity_t trav,
-    ecs_table_t *table,
-    ecs_id_t with)
+    const ecs_table_t *table,
+    ecs_id_record_t *idr_with)
 {
-    ecs_abort(ECS_UNSUPPORTED, NULL);
-
     ecs_trav_cache_t *cache = flecs_trav_cache_get(&world);
-    ecs_id_record_t *idr_with = NULL;
-    if (with) {
-        idr_with = flecs_id_record_get(world, with);
-        if (!idr_with) {
-            return NULL;
-        }
-    }
-
     ecs_id_record_t *idr = flecs_id_record_get(world, 
         ecs_pair(trav, EcsWildcard));
     if (!idr) {
@@ -647,6 +718,23 @@ const ecs_trav_up_t* flecs_trav_up(
 
     return flecs_trav_up_build(
         world, cache, NULL, trav, table, idr, idr_with, idr->generation);
+}
+
+const ecs_trav_up_t* flecs_trav_up(
+    ecs_world_t *world,
+    ecs_entity_t trav,
+    const ecs_table_t *table,
+    ecs_id_t with)
+{
+    ecs_id_record_t *idr_with = NULL;
+    if (with) {
+        idr_with = flecs_id_record_get(world, with);
+        if (!idr_with) {
+            return NULL;
+        }
+    }
+
+    return flecs_trav_up_w_idr(world, trav, table, idr_with);
 }
 
 void flecs_trav_entity_modified(
@@ -667,6 +755,83 @@ void flecs_trav_entity_modified(
     }
 }
 
+static
+void flecs_trav_down_cache_clear(
+    ecs_trav_cache_t *cache,
+    ecs_sparse_t *down_cache,
+    uint64_t id)
+{
+    ecs_trav_down_for_t *df = flecs_sparse_get(
+        down_cache, ecs_trav_down_for_t, id);
+    if (!df) {
+        return;
+    }
+
+    
+
+    ecs_map_t *map = &cache->entity_down;
+    if (!ecs_map_is_initialized(map)) {
+        return;
+    }
+
+    ecs_id_t pair = ecs_pair(trav, id);
+    ecs_trav_down_for_t *down_for = ecs_map_get(map, ecs_trav_down_for_t, pair);
+    if (!down_for) {
+        return;
+    }
+
+    if (ecs_map_is_initialized(&down_for->with)) {
+        ecs_map_iter_t mit = ecs_map_iter(&down_for->with);
+        ecs_trav_down_t *down;
+        while ((down = ecs_map_next(&mit, ecs_trav_down_t, 0))) {
+            ecs_vec_fini_t(cache->allocator, &down->elems, ecs_trav_elem_t);
+        }
+        ecs_map_fini(&down_for->with);
+    }
+
+    ecs_map_remove(map, pair);
+}
+
+static
+void flecs_trav_down_cache_clear_entity(
+    ecs_trav_cache_t *cache,
+    ecs_entity_t trav,
+    ecs_entity_t id)
+{
+    flecs_trav_down_cache_clear(cache, &cache->entity_down, id);
+}
+
+static
+void flecs_trav_down_cache_clear_table(
+    ecs_trav_cache_t *cache,
+    ecs_entity_t trav,
+    ecs_table_t *table)
+{
+    flecs_trav_down_cache_clear(cache, &cache->entity_down, table->id);
+}
+
+static
+void flecs_trav_up_cache_table_clear(
+    ecs_trav_cache_t *cache,
+    ecs_entity_t trav,
+    ecs_table_t *table)
+{
+    ecs_map_t *map = &cache->up;
+    if (!ecs_map_is_initialized(map)) {
+        return;
+    }
+
+    ecs_id_t pair = ecs_pair(trav, table->id);
+    ecs_trav_up_for_t *up_for = ecs_map_get(map, ecs_trav_up_for_t, pair);
+    if (!up_for) {
+        return;
+    }
+
+    ecs_map_fini(&up_for->with);
+    ecs_map_remove(map, pair);
+
+}
+
 void flecs_trav_entity_clear(
     ecs_world_t *world,
     ecs_entity_t trav,
@@ -676,15 +841,37 @@ void flecs_trav_entity_clear(
     int32_t i, count = world->stage_count;
     for (i = 0; i < count; i ++) {
         ecs_trav_cache_t *cache = &world->stages[i].trav;
-        flecs_trav_cache_entity_clear(cache, trav, entity);
+        flecs_trav_down_cache_clear_entity(cache, trav, entity);
+    }
+}
+
+void flecs_trav_table_clear(
+    ecs_world_t *world,
+    ecs_entity_t trav,
+    ecs_table_t *table)
+{
+    ecs_poly_assert(world, ecs_world_t);
+    int32_t i, count = world->stage_count;
+    for (i = 0; i < count; i ++) {
+        ecs_trav_cache_t *cache = &world->stages[i].trav;
+        flecs_trav_down_cache_clear_table(cache, trav, table);
+        flecs_trav_up_cache_table_clear(cache, trav, table);
     }
 }
 
 void flecs_trav_init(
-    ecs_allocator_t *allocator,
+    ecs_allocator_t *a,
     ecs_trav_cache_t *cache)
 {
-    cache->allocator = allocator;
+    cache->allocator = a;
+    ecs_map_params_init(&cache->trav_down_for_params, a, ecs_trav_down_for_t);
+    ecs_map_params_init(&cache->trav_up_for_params, a, ecs_trav_up_for_t);
+    ecs_map_params_init(&cache->trav_down_params, a, ecs_trav_down_t);
+    ecs_map_params_init(&cache->trav_up_params, a, ecs_trav_up_t);
+
+    flecs_sparse_init(&cache->table_down, a, NULL, ecs_trav_down_for_t);
+    flecs_sparse_init(&cache->entity_down, a, NULL, ecs_trav_down_for_t);
+    // flecs_sparse_init(&cache->id_map, a, NULL, ecs_trav_down_for_t);
 }
 
 void flecs_trav_fini(
@@ -692,4 +879,9 @@ void flecs_trav_fini(
 {
     flecs_trav_fini_down(cache->allocator, &cache->entity_down);
     flecs_trav_fini_down(cache->allocator, &cache->table_down);
+    flecs_trav_fini_up(&cache->up);
+    ecs_map_params_fini(&cache->trav_down_for_params);
+    ecs_map_params_fini(&cache->trav_up_for_params);
+    ecs_map_params_fini(&cache->trav_down_params);
+    ecs_map_params_fini(&cache->trav_up_params);
 }
