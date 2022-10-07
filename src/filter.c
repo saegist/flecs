@@ -1918,20 +1918,20 @@ bool flecs_term_iter_next(
     do {
         ecs_assert(!tr || tr->hdr.table != NULL, ECS_INTERNAL_ERROR, NULL);
         if (trav) {
-            ecs_assert(ecs_vector_count(trav->elems) > 0, 
+            ecs_assert(ecs_vec_count(&trav->elems) > 0, 
                 ECS_INTERNAL_ERROR, NULL);
 
             /* Traverse downwards from table that has the id from the cache */
             do {
-                if (trav_index >= ecs_vector_count(trav->elems)) {
+                if (trav_index >= ecs_vec_count(&trav->elems)) {
                     trav = NULL;
                     trav_done = true;
                     table = tr->hdr.table;
                     break;
                 }
 
-                ecs_trav_elem_t *elem = ecs_vector_get(
-                    trav->elems, ecs_trav_elem_t, trav_index);
+                ecs_trav_elem_t *elem = ecs_vec_get_t(
+                    &trav->elems, ecs_trav_elem_t, trav_index);
                 if (is_self && elem->leaf) {
                     /* Leaf elements both own and inherit the component from a
                      * relationship. They should only be matched if a filter

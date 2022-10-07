@@ -14,7 +14,7 @@ typedef struct {
 } ecs_trav_elem_t;
 
 typedef struct ecs_trav_down_t {
-    ecs_vector_t *elems; /* vector<trav_down_elem_t> */
+    ecs_vec_t elems;     /* vector<trav_down_elem_t> */
     uint32_t generation;
 } ecs_trav_down_t;
 
@@ -39,14 +39,21 @@ typedef struct {
 } ecs_trav_stats_t;
 
 typedef struct {
+    ecs_allocator_t *allocator;
     ecs_map_t entity_down; /* map<(trav, entity), trav_down_for_t> */
     ecs_map_t table_down;  /* map<(trav, table), trav_down_for_t> */
     ecs_map_t up; /* map<(trav, entity), trav_up_for_t> */
-    ecs_vector_t *vector_stack; /* Recycle vectors */
     ecs_trav_stats_t entity_down_stats;
     ecs_trav_stats_t table_down_stats;
     ecs_trav_stats_t up_stats;
 } ecs_trav_cache_t;
+
+void flecs_trav_init(
+    ecs_allocator_t *allocator,
+    ecs_trav_cache_t *cache);
+
+void flecs_trav_fini(
+    ecs_trav_cache_t *cache);
 
 const ecs_trav_down_t* flecs_trav_entity_down(
     ecs_world_t *world,
@@ -80,8 +87,5 @@ void flecs_trav_entity_clear(
     ecs_world_t *world,
     ecs_entity_t trav,
     ecs_entity_t entity);
-
-void flecs_trav_fini(
-    ecs_trav_cache_t *cache);
 
 #endif

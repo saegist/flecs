@@ -476,6 +476,7 @@ void flecs_stage_init(
     flecs_stack_init(&stage->defer_stack);
     flecs_stack_init(&stage->allocators.iter_stack);
     flecs_stack_init(&stage->allocators.deser_stack);
+    flecs_trav_init(&stage->allocator, &stage->trav);
     flecs_allocator_init(&stage->allocator);
     flecs_ballocator_init_n(&stage->allocators.cmd_entry_chunk, ecs_cmd_entry_t,
         FLECS_SPARSE_CHUNK_SIZE);

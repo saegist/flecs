@@ -325,10 +325,10 @@ void ecs_world_stats_get(
 
     ECS_COUNTER_RECORD(&s->trav_cache.entity_down_hit, t, entity_down.cache_hit);
     ECS_COUNTER_RECORD(&s->trav_cache.entity_down_miss, t, entity_down.cache_miss);
-    ECS_COUNTER_RECORD(&s->trav_cache.entity_down_count, t, entity_down.entry_count);
+    ECS_GAUGE_RECORD(&s->trav_cache.entity_down_count, t, entity_down.entry_count);
     ECS_COUNTER_RECORD(&s->trav_cache.table_down_hit, t, table_down.cache_hit);
     ECS_COUNTER_RECORD(&s->trav_cache.table_down_miss, t, table_down.cache_miss);
-    ECS_COUNTER_RECORD(&s->trav_cache.table_down_count, t, table_down.entry_count);
+    ECS_GAUGE_RECORD(&s->trav_cache.table_down_count, t, table_down.entry_count);
 
     int64_t outstanding_allocs = ecs_os_api_malloc_count + 
         ecs_os_api_calloc_count - ecs_os_api_free_count;

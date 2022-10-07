@@ -94,9 +94,9 @@ void notify_subset(
                 continue;
             }
 
-            ecs_vector_t *velems = cache->elems;
-            int32_t t, elem_count = ecs_vector_count(velems);
-            ecs_trav_elem_t *elems = ecs_vector_first(velems, ecs_trav_elem_t);
+            const ecs_vec_t *velems = &cache->elems;
+            int32_t t, elem_count = ecs_vec_count(velems);
+            ecs_trav_elem_t *elems = ecs_vec_first(velems);
             for (t = 0; t < elem_count; t ++) {
                 ecs_table_t *table = elems[t].table;
                 if (elems[t].leaf) {

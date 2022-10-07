@@ -39,6 +39,20 @@ void ecs_vec_clear(
     vec->count = 0;
 }
 
+ecs_vec_t* ecs_vec_reset(
+    ecs_allocator_t *allocator,
+    ecs_vec_t *v,
+    ecs_size_t size)
+{
+    if (!v->size) {
+        ecs_vec_init(allocator, v, size, 0);
+    } else {
+        ecs_dbg_assert(size == v->elem_size, ECS_INTERNAL_ERROR, NULL);
+        ecs_vec_clear(v);
+    }
+    return v;
+}
+
 ecs_vec_t ecs_vec_copy(
     ecs_allocator_t *allocator,
     ecs_vec_t *v,

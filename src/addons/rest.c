@@ -390,10 +390,10 @@ void flecs_world_stats_to_json(
 
     ECS_COUNTER_APPEND(reply, stats, trav_cache.entity_down_hit, "Cache hit for downwards search from entity");
     ECS_COUNTER_APPEND(reply, stats, trav_cache.entity_down_miss, "Cache miss for downwards search from entity");
-    ECS_COUNTER_APPEND(reply, stats, trav_cache.entity_down_count, "Number of entries in the entity down cache");
     ECS_COUNTER_APPEND(reply, stats, trav_cache.table_down_hit, "Cache hit for downwards search from table");
     ECS_COUNTER_APPEND(reply, stats, trav_cache.table_down_miss, "Cache miss for downwards search from table");
-    ECS_COUNTER_APPEND(reply, stats, trav_cache.table_down_count, "Number of entries in the table down cache");
+    ECS_GAUGE_APPEND(reply, stats, trav_cache.entity_down_count, "Number of entries in the entity down cache");
+    ECS_GAUGE_APPEND(reply, stats, trav_cache.table_down_count, "Number of entries in the table down cache");
 
     ecs_strbuf_list_pop(reply, "}");
 }

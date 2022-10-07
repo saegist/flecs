@@ -3246,6 +3246,14 @@ ecs_vec_t* ecs_vec_init(
 #define ecs_vec_init_t(allocator, vec, T, elem_count) \
     ecs_vec_init(allocator, vec, ECS_SIZEOF(T), elem_count)
 
+ecs_vec_t* ecs_vec_reset(
+    ecs_allocator_t *allocator,
+    ecs_vec_t *vec,
+    ecs_size_t size);
+
+#define ecs_vec_reset_t(allocator, vec, T) \
+    ecs_vec_reset(allocator, vec, ECS_SIZEOF(T))
+
 void ecs_vec_fini(
     ecs_allocator_t *allocator,
     ecs_vec_t *vec,
