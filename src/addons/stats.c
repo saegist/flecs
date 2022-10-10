@@ -326,9 +326,9 @@ void ecs_world_stats_get(
         table_down.cache_miss += trav->table_down_stats.cache_miss;
         up_cache.cache_hit += trav->up_stats.cache_hit;
         up_cache.cache_miss += trav->up_stats.cache_miss;
-        entity_down_count += ecs_map_count(&trav->entity_down);
-        table_down_count += ecs_map_count(&trav->table_down);
-        up_cache_count += ecs_map_count(&trav->up);
+        entity_down_count += flecs_sparse_count(&trav->entity_down);
+        table_down_count += flecs_sparse_count(&trav->table_down);
+        up_cache_count += flecs_sparse_count(&trav->up);
     }
 
     ECS_COUNTER_RECORD(&s->trav_cache.entity_down_hit, t, entity_down.cache_hit);

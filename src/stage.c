@@ -476,7 +476,6 @@ void flecs_stage_init(
     flecs_stack_init(&stage->defer_stack);
     flecs_stack_init(&stage->allocators.iter_stack);
     flecs_stack_init(&stage->allocators.deser_stack);
-    flecs_trav_init(&stage->allocator, &stage->trav);
     flecs_allocator_init(&stage->allocator);
     flecs_ballocator_init_n(&stage->allocators.cmd_entry_chunk, ecs_cmd_entry_t,
         FLECS_SPARSE_CHUNK_SIZE);
@@ -484,6 +483,7 @@ void flecs_stage_init(
     ecs_vec_init_t(&stage->allocator, &stage->commands, ecs_cmd_t, 0);
     flecs_sparse_init(&stage->cmd_entries, &stage->allocator,
         &stage->allocators.cmd_entry_chunk, ecs_cmd_entry_t);
+    flecs_trav_init(&stage->allocator, &stage->trav);
 }
 
 void flecs_stage_fini(

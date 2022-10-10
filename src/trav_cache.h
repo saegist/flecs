@@ -14,8 +14,8 @@ typedef struct {
 /* Traversal cache key */
 typedef struct {
     uint64_t id;  /* Entity or table id */
-    int32_t trav; /* Compressed trav id */
-    int32_t with; /* Compressed with id */
+    uint32_t trav; /* Compressed trav id */
+    uint32_t with; /* Compressed with id */
 } ecs_trav_key_t;
 
 typedef struct {
@@ -27,7 +27,11 @@ typedef struct {
 } ecs_trav_up_t;
 
 typedef struct {
-    ecs_map_t with; /* map<with, trav_up_t> */
+    ecs_vec_t with;
+} ecs_trav_up_for_trav_t; /* vec<ecs_trav_up_t> (with = index) */
+
+typedef struct {
+    ecs_vec_t trav; /* vec<ecs_trav_down_for_trav_t> (trav = index) */
 } ecs_trav_up_for_t;
 
 /** Cache for speeding up relationship traversal */
@@ -57,20 +61,19 @@ typedef struct {
 
 typedef struct {
     ecs_allocator_t *allocator;
-    ecs_map_params_t trav_down_for_params;
     ecs_map_params_t trav_up_for_params;
-    ecs_map_params_t trav_down_params;
     ecs_map_params_t trav_up_params;
-    // ecs_map_t entity_down; /* map<(trav, entity), trav_down_for_t> */
-    // ecs_map_t table_down;  /* map<(trav, table),  trav_down_for_t> */
-    ecs_map_t up;          /* map<(trav, entity), trav_up_for_t> */
 
     ecs_sparse_t entity_down;
     ecs_sparse_t table_down;
+    ecs_sparse_t up;
 
-    /* Compress trav and with ids so we can use direct array indexing */
-    ecs_sparse_t trav_map; /* sparse set, relationship fits in 32 bits */
-    ecs_map_t with_map;    /* map, ids can be pairs which are 64 bit */
+    /* Compress trav and with ids so we can use direct array indexing. Use 
+     * separate sparse sets for regular ids and relationships so that 
+     * relationship ids remain small, which saves space in the cache. */
+    ecs_sparse_t trav_map;    /* sparse set, relationship fits in 32 bits */
+    ecs_sparse_t with_lo_map; /* sparse set for low ids */
+    ecs_map_t with_hi_map;    /* map for high ids */
 
     ecs_trav_stats_t entity_down_stats;
     ecs_trav_stats_t table_down_stats;
@@ -120,12 +123,10 @@ void flecs_trav_entity_modified(
 
 void flecs_trav_entity_clear(
     ecs_world_t *world,
-    ecs_entity_t trav,
     ecs_entity_t entity);
 
 void flecs_trav_table_clear(
     ecs_world_t *world,
-    ecs_entity_t trav,
     ecs_table_t *table);
 
 #endif

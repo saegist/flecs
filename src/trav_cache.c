@@ -1,5 +1,7 @@
 #include "private_api.h"
 
+#define ECS_TRAV_HI_COMPONENT_ID (4096 * 256)
+
 static
 ecs_trav_down_t* flecs_trav_table_down_build(
     ecs_world_t *world,
@@ -39,13 +41,13 @@ ecs_trav_cache_t* flecs_trav_cache_get(
 }
 
 static
-int32_t flecs_trav_compress_trav(
+uint32_t flecs_trav_compress_trav(
     ecs_trav_cache_t *cache,
     ecs_entity_t trav)
 {
-    ecs_trav_id_index_t *index = flecs_sparse_ensure(
+    ecs_trav_id_index_t *index = flecs_sparse_ensure_fast(
         &cache->trav_map, ecs_trav_id_index_t, (uint32_t)trav);
-    int32_t result = index->value;
+    uint32_t result = index->value;
     if (!result) {
         result = index->value = flecs_sparse_count(&cache->trav_map);
     }
@@ -53,30 +55,59 @@ int32_t flecs_trav_compress_trav(
 }
 
 static
-int32_t flecs_trav_compress_with(
+uint32_t flecs_trav_compress_with_lo(
     ecs_trav_cache_t *cache,
-    ecs_id_t with)
+    ecs_entity_t with)
 {
-    ecs_trav_id_index_t *index = ecs_map_ensure(
-        &cache->with_map, ecs_trav_id_index_t, with);
-    int32_t result = index->value;
+    ecs_trav_id_index_t *index = flecs_sparse_ensure_fast(
+        &cache->with_lo_map, ecs_trav_id_index_t, (uint32_t)with);
+    uint32_t result = index->value;
     if (!result) {
-        result = index->value = ecs_map_count(&cache->with_map);
+        result = index->value = flecs_sparse_count(&cache->with_lo_map);
     }
     return result;
 }
 
+static
+uint32_t flecs_trav_compress_with_hi(
+    ecs_trav_cache_t *cache,
+    ecs_id_t with)
+{
+    ecs_trav_id_index_t *index = ecs_map_ensure(
+        &cache->with_hi_map, ecs_trav_id_index_t, with);
+    uint32_t result = index->value;
+    if (!result) {
+        result = index->value = ecs_map_count(&cache->with_hi_map);
+    }
+    return result;
+}
+
+static
 ecs_trav_key_t flecs_trav_get_key(
     ecs_trav_cache_t *cache,
     uint64_t id,
     ecs_entity_t trav,
     ecs_id_t with)
 {
-    return (ecs_trav_key_t) {
-        .id = id,
-        .trav = flecs_trav_compress_trav(cache, trav),
-        .with = flecs_trav_compress_with(cache, with)
-    };
+    bool high_id = with > ECS_TRAV_HI_COMPONENT_ID;
+
+    /* Save one bit fir whether the with id is a high id. This allows us to use
+     * a sparse set for regular id compression, which is faster. */
+    trav = flecs_trav_compress_trav(cache, trav);
+    trav = (trav << 1) + high_id;
+    if (high_id) {
+        return (ecs_trav_key_t) {
+            .id = id,
+            .trav = (uint32_t)trav,
+            .with = flecs_trav_compress_with_hi(cache, with)
+        };
+    } else {
+        return (ecs_trav_key_t) {
+            .id = id,
+            .trav = (uint32_t)trav,
+            .with = flecs_trav_compress_with_lo(cache, with)
+        };
+    }
 }
 
 static
@@ -85,13 +116,14 @@ ecs_trav_down_t* flecs_trav_ensure_down_cache(
     ecs_sparse_t *down_for,
     const ecs_trav_key_t *key)
 {
-    ecs_trav_down_for_t *df = flecs_sparse_ensure(
-        down_for, ecs_trav_down_for_t, key->id);
+    uint32_t id = (uint32_t)key->id;
+    ecs_trav_down_for_t *df = flecs_sparse_ensure_fast(
+        down_for, ecs_trav_down_for_t, id);
 
     int32_t key_trav = key->trav;
     if (key_trav >= ecs_vec_count(&df->trav)) {
-        ecs_vec_set_count_t(cache->allocator, &df->trav, 
-            ecs_trav_down_for_trav_t, key_trav);
+        ecs_vec_set_count_zeromem_t(cache->allocator, &df->trav, 
+            ecs_trav_down_for_trav_t, key_trav + 1);
     }
 
     ecs_trav_down_for_trav_t *dft = ecs_vec_get_t(&df->trav, 
@@ -99,8 +131,8 @@ ecs_trav_down_t* flecs_trav_ensure_down_cache(
 
     int32_t key_with = key->with;
     if (key_with >= ecs_vec_count(&dft->with)) {
-        ecs_vec_set_count_t(cache->allocator, &dft->with, 
-            ecs_trav_down_t, key_with);
+        ecs_vec_set_count_zeromem_t(cache->allocator, &dft->with, 
+            ecs_trav_down_t, key_with + 1);
     }
 
     return ecs_vec_get_t(&dft->with, ecs_trav_down_t, key_with);
@@ -109,16 +141,28 @@ ecs_trav_down_t* flecs_trav_ensure_down_cache(
 static
 ecs_trav_up_t* flecs_trav_up_ensure(
     ecs_trav_cache_t *cache,
-    ecs_entity_t trav,
-    const ecs_table_t *table,
-    ecs_id_t with,
-    ecs_trav_stats_t *stats)
+    const ecs_trav_key_t *key)
 {
-    ecs_id_t id = ecs_pair(trav, table->id);
-    ecs_map_init_w_params_if(&cache->up, &cache->trav_up_for_params);
-    ecs_trav_up_for_t *df = ecs_map_ensure(&cache->up, ecs_trav_up_for_t, id);
-    ecs_map_init_w_params_if(&df->with, &cache->trav_up_params);
-    return ecs_map_ensure(&df->with, ecs_trav_up_t, with);
+    uint32_t id = (uint32_t)key->id;
+    ecs_trav_up_for_t *df = flecs_sparse_ensure_fast(
+        &cache->up, ecs_trav_up_for_t, id);
+
+    int32_t key_trav = key->trav;
+    if (key_trav >= ecs_vec_count(&df->trav)) {
+        ecs_vec_set_count_zeromem_t(cache->allocator, &df->trav, 
+            ecs_trav_up_for_trav_t, key_trav + 1);
+    }
+
+    ecs_trav_up_for_trav_t *dft = ecs_vec_get_t(&df->trav, 
+        ecs_trav_up_for_trav_t, key_trav);
+
+    int32_t key_with = key->with;
+    if (key_with >= ecs_vec_count(&dft->with)) {
+        ecs_vec_set_count_zeromem_t(cache->allocator, &dft->with, 
+            ecs_trav_up_t, key_with + 1);
+    }
+
+    return ecs_vec_get_t(&dft->with, ecs_trav_up_t, key_with);
 }
 
 static
@@ -232,6 +276,7 @@ ecs_trav_down_t* flecs_trav_entity_down_build(
     ecs_id_record_t *idr_with,
     uint32_t generation)
 {
+    ecs_assert(entity == key->id, ECS_INTERNAL_ERROR, NULL);
     ecs_trav_down_t *src = flecs_trav_entity_ensure(cache, key);
     ecs_assert(src != NULL, ECS_INTERNAL_ERROR, NULL);
     ecs_id_t with = idr_with->id;
@@ -309,8 +354,12 @@ ecs_trav_down_t* flecs_trav_entity_down_build(
             ecs_trav_elem_t *elem = ecs_vec_get_t(
                 &src->elems, ecs_trav_elem_t, t);
             if (!elem->leaf) {
-                flecs_trav_table_down_build(world, cache, src, key, root, trav, 
-                    elem->table, idr_with, generation);
+                ecs_trav_key_t child_key;
+                child_key.id = elem->table->id;
+                child_key.trav = key->trav;
+                child_key.with = key->with;
+                flecs_trav_table_down_build(world, cache, src, &child_key, root, 
+                    trav, elem->table, idr_with, generation);
             }
         }
 
@@ -334,6 +383,8 @@ void flecs_trav_entity_isa_build(
     ecs_id_record_t *idr_with,
     uint32_t generation)
 {
+    ecs_assert(entity == key->id, ECS_INTERNAL_ERROR, NULL);
+
     if (trav == EcsIsA) {
         return;
     }
@@ -368,8 +419,13 @@ void flecs_trav_entity_isa_build(
                     if (is_root) {
                         root = e;
                     }
-                    flecs_trav_entity_down_build(world, cache, dst, key, root, 
-                        trav, e, idr_with, generation);
+
+                    ecs_trav_key_t child_key;
+                    child_key.id = e;
+                    child_key.trav = key->trav;
+                    child_key.with = key->with;
+                    flecs_trav_entity_down_build(world, cache, dst, &child_key, 
+                        root, trav, e, idr_with, generation);
                 }
             }
         }
@@ -388,7 +444,9 @@ ecs_trav_down_t* flecs_trav_table_down_build(
     ecs_id_record_t *idr_with,
     uint32_t generation)
 {
+    ecs_assert(table->id == key->id, ECS_INTERNAL_ERROR, NULL);
     ecs_assert(table->id != 0, ECS_INTERNAL_ERROR, NULL);
+
     if (!table->observed_count) {
         return dst;
     }
@@ -432,8 +490,12 @@ ecs_trav_down_t* flecs_trav_table_down_build(
                 }
 
                 ecs_assert(root != 0, ECS_INTERNAL_ERROR, NULL);
+                ecs_trav_key_t child_key;
+                child_key.id = entity;
+                child_key.trav = key->trav;
+                child_key.with = key->with;
                 flecs_trav_entity_down_build(world, cache, src,
-                    key, root, trav, entity, idr_with, generation);
+                    &child_key, root, trav, entity, idr_with, generation);
             }
         }
 
@@ -452,6 +514,7 @@ ecs_trav_up_t* flecs_trav_up_build(
     ecs_world_t *world,
     ecs_trav_cache_t *cache,
     ecs_trav_up_t *dst,
+    const ecs_trav_key_t *key,
     ecs_entity_t trav,
     const ecs_table_t *table,
     ecs_id_record_t *idr_trav,
@@ -464,8 +527,7 @@ ecs_trav_up_t* flecs_trav_up_build(
     }
 
     ecs_assert(idr_with != NULL, ECS_INTERNAL_ERROR, NULL);
-    ecs_trav_up_t *src = flecs_trav_up_ensure(
-        cache, trav, table, idr_with->id, &cache->up_stats);
+    ecs_trav_up_t *src = flecs_trav_up_ensure(cache, key);
     ecs_assert(src != NULL, ECS_INTERNAL_ERROR, NULL);
 
     if (!dst) {
@@ -550,15 +612,25 @@ ecs_trav_up_t* flecs_trav_up_build(
                 }
 
                 ecs_id_record_t *idr_isa = world->idr_isa_wildcard;
-                if (flecs_trav_up_build(world, cache, src, EcsIsA, tgt_table,
-                    idr_isa, idr_with, idr_isa->generation))
+                ecs_trav_key_t child_key = {
+                    .id = tgt_table->id,
+                    .trav = key->trav,
+                    .with = key->with
+                };
+                if (flecs_trav_up_build(world, cache, src, &child_key, EcsIsA, 
+                    tgt_table, idr_isa, idr_with, idr_isa->generation))
                 { /* Table inherits id */
                     break;
                 }
             }
 
-            if (flecs_trav_up_build(world, cache, src, trav, tgt_table,
-                idr_trav, idr_with, generation))
+            ecs_trav_key_t child_key = {
+                .id = tgt_table->id,
+                .trav = key->trav,
+                .with = key->with
+            };
+            if (flecs_trav_up_build(world, cache, src, &child_key, trav, 
+                tgt_table, idr_trav, idr_with, generation))
             { /* Id is reachable by following relationship */
                 break;
             }
@@ -599,16 +671,9 @@ void flecs_trav_fini_down(
 
 static
 void flecs_trav_fini_up(
-    ecs_map_t *up_cache)
+    ecs_sparse_t *up_cache)
 {
-    if (ecs_map_is_initialized(up_cache)) {
-        ecs_map_iter_t it = ecs_map_iter(up_cache);
-        ecs_trav_up_for_t *up_for;
-        while ((up_for = ecs_map_next(&it, ecs_trav_up_for_t, 0))) {
-            ecs_map_fini(&up_for->with);
-        }
-        ecs_map_fini(up_cache);
-    }
+
 }
 
 const ecs_trav_down_t* flecs_trav_entity_down(
@@ -698,6 +763,7 @@ const ecs_trav_down_t* flecs_trav_table_down(
     if (!ecs_vec_count(&result->elems)) {
         result = NULL;
     }
+
     return result;
 }
 
@@ -716,8 +782,9 @@ const ecs_trav_up_t* flecs_trav_up_w_idr(
 
     flecs_process_pending_tables(world);
 
+    ecs_trav_key_t key = flecs_trav_get_key(cache, table->id, trav, idr_with->id);
     return flecs_trav_up_build(
-        world, cache, NULL, trav, table, idr, idr_with, idr->generation);
+        world, cache, NULL, &key, trav, table, idr, idr_with, idr->generation);
 }
 
 const ecs_trav_up_t* flecs_trav_up(
@@ -761,41 +828,35 @@ void flecs_trav_down_cache_clear(
     ecs_sparse_t *down_cache,
     uint64_t id)
 {
-    ecs_trav_down_for_t *df = flecs_sparse_get(
+    id = (uint32_t)id;
+    ecs_trav_down_for_t *df = flecs_sparse_get_any(
         down_cache, ecs_trav_down_for_t, id);
     if (!df) {
         return;
     }
 
-    
+    ecs_allocator_t *a = cache->allocator;
 
-    ecs_map_t *map = &cache->entity_down;
-    if (!ecs_map_is_initialized(map)) {
-        return;
-    }
-
-    ecs_id_t pair = ecs_pair(trav, id);
-    ecs_trav_down_for_t *down_for = ecs_map_get(map, ecs_trav_down_for_t, pair);
-    if (!down_for) {
-        return;
-    }
-
-    if (ecs_map_is_initialized(&down_for->with)) {
-        ecs_map_iter_t mit = ecs_map_iter(&down_for->with);
-        ecs_trav_down_t *down;
-        while ((down = ecs_map_next(&mit, ecs_trav_down_t, 0))) {
-            ecs_vec_fini_t(cache->allocator, &down->elems, ecs_trav_elem_t);
+    int32_t trav_i, trav_count = ecs_vec_count(&df->trav);
+    ecs_trav_down_for_trav_t *dft_array = ecs_vec_first(&df->trav);
+    for (trav_i = 0; trav_i < trav_count; trav_i ++) {
+        ecs_trav_down_for_trav_t *dft = &dft_array[trav_i];
+        int32_t with_i, with_count = ecs_vec_count(&dft->with);
+        ecs_trav_down_t *with_array = ecs_vec_first(&dft->with);
+        for (with_i = 0; with_i < with_count; with_i ++) {
+            ecs_trav_down_t *with = &with_array[with_i];
+            ecs_vec_fini_t(a, &with->elems, ecs_trav_elem_t);
         }
-        ecs_map_fini(&down_for->with);
+        ecs_vec_fini_t(a, &dft->with, ecs_trav_down_t);
     }
+    ecs_vec_fini_t(a, &df->trav, ecs_trav_down_for_trav_t);
 
-    ecs_map_remove(map, pair);
+    flecs_sparse_remove_fast(down_cache, ecs_trav_down_for_t, id);
 }
 
 static
 void flecs_trav_down_cache_clear_entity(
     ecs_trav_cache_t *cache,
-    ecs_entity_t trav,
     ecs_entity_t id)
 {
     flecs_trav_down_cache_clear(cache, &cache->entity_down, id);
@@ -804,58 +865,58 @@ void flecs_trav_down_cache_clear_entity(
 static
 void flecs_trav_down_cache_clear_table(
     ecs_trav_cache_t *cache,
-    ecs_entity_t trav,
     ecs_table_t *table)
 {
-    flecs_trav_down_cache_clear(cache, &cache->entity_down, table->id);
+    flecs_trav_down_cache_clear(cache, &cache->table_down, table->id);
 }
 
 static
 void flecs_trav_up_cache_table_clear(
     ecs_trav_cache_t *cache,
-    ecs_entity_t trav,
     ecs_table_t *table)
 {
-    ecs_map_t *map = &cache->up;
-    if (!ecs_map_is_initialized(map)) {
+    uint64_t id = table->id;
+    ecs_trav_up_for_t *df = flecs_sparse_get_any(
+        &cache->up, ecs_trav_up_for_t, id);
+    if (!df) {
         return;
     }
 
-    ecs_id_t pair = ecs_pair(trav, table->id);
-    ecs_trav_up_for_t *up_for = ecs_map_get(map, ecs_trav_up_for_t, pair);
-    if (!up_for) {
-        return;
+    ecs_allocator_t *a = cache->allocator;
+
+    int32_t trav_i, trav_count = ecs_vec_count(&df->trav);
+    ecs_trav_up_for_trav_t *dft_array = ecs_vec_first(&df->trav);
+    for (trav_i = 0; trav_i < trav_count; trav_i ++) {
+        ecs_trav_up_for_trav_t *dft = &dft_array[trav_i];
+        ecs_vec_fini_t(a, &dft->with, ecs_trav_down_t);
     }
+    ecs_vec_fini_t(a, &df->trav, ecs_trav_up_for_trav_t);
 
-    ecs_map_fini(&up_for->with);
-    ecs_map_remove(map, pair);
-
+    flecs_sparse_remove_fast(&cache->up, ecs_trav_up_for_t, id);
 }
 
 void flecs_trav_entity_clear(
     ecs_world_t *world,
-    ecs_entity_t trav,
     ecs_entity_t entity)
 {
     ecs_poly_assert(world, ecs_world_t);
     int32_t i, count = world->stage_count;
     for (i = 0; i < count; i ++) {
         ecs_trav_cache_t *cache = &world->stages[i].trav;
-        flecs_trav_down_cache_clear_entity(cache, trav, entity);
+        flecs_trav_down_cache_clear_entity(cache, entity);
     }
 }
 
 void flecs_trav_table_clear(
     ecs_world_t *world,
-    ecs_entity_t trav,
     ecs_table_t *table)
 {
     ecs_poly_assert(world, ecs_world_t);
     int32_t i, count = world->stage_count;
     for (i = 0; i < count; i ++) {
         ecs_trav_cache_t *cache = &world->stages[i].trav;
-        flecs_trav_down_cache_clear_table(cache, trav, table);
-        flecs_trav_up_cache_table_clear(cache, trav, table);
+        flecs_trav_down_cache_clear_table(cache, table);
+        flecs_trav_up_cache_table_clear(cache, table);
     }
 }
 
@@ -864,14 +925,16 @@ void flecs_trav_init(
     ecs_trav_cache_t *cache)
 {
     cache->allocator = a;
-    ecs_map_params_init(&cache->trav_down_for_params, a, ecs_trav_down_for_t);
     ecs_map_params_init(&cache->trav_up_for_params, a, ecs_trav_up_for_t);
-    ecs_map_params_init(&cache->trav_down_params, a, ecs_trav_down_t);
     ecs_map_params_init(&cache->trav_up_params, a, ecs_trav_up_t);
 
     flecs_sparse_init(&cache->table_down, a, NULL, ecs_trav_down_for_t);
     flecs_sparse_init(&cache->entity_down, a, NULL, ecs_trav_down_for_t);
-    // flecs_sparse_init(&cache->id_map, a, NULL, ecs_trav_down_for_t);
+    flecs_sparse_init(&cache->up, a, NULL, ecs_trav_up_for_t);
+    
+    flecs_sparse_init(&cache->trav_map, a, NULL, ecs_trav_id_index_t);
+    flecs_sparse_init(&cache->with_lo_map, a, NULL, ecs_trav_id_index_t);
+    ecs_map_init(&cache->with_hi_map, ecs_trav_id_index_t, a, 0);
 }
 
 void flecs_trav_fini(
@@ -880,8 +943,7 @@ void flecs_trav_fini(
     flecs_trav_fini_down(cache->allocator, &cache->entity_down);
     flecs_trav_fini_down(cache->allocator, &cache->table_down);
     flecs_trav_fini_up(&cache->up);
-    ecs_map_params_fini(&cache->trav_down_for_params);
+
     ecs_map_params_fini(&cache->trav_up_for_params);
-    ecs_map_params_fini(&cache->trav_down_params);
     ecs_map_params_fini(&cache->trav_up_params);
 }

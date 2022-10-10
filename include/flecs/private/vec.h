@@ -97,6 +97,15 @@ void ecs_vec_set_count(
 #define ecs_vec_set_count_t(allocator, vec, T, elem_count) \
     ecs_vec_set_count(allocator, vec, ECS_SIZEOF(T), elem_count)
 
+void ecs_vec_set_count_zeromem(
+    ecs_allocator_t *allocator,
+    ecs_vec_t *vec,
+    ecs_size_t size,
+    int32_t elem_count);
+
+#define ecs_vec_set_count_zeromem_t(allocator, vec, T, elem_count) \
+    ecs_vec_set_count_zeromem(allocator, vec, ECS_SIZEOF(T), elem_count)
+
 void* ecs_vec_grow(
     ecs_allocator_t *allocator,
     ecs_vec_t *vec,

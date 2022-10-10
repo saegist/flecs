@@ -117,13 +117,32 @@ void ecs_vec_set_count(
     ecs_size_t size,
     int32_t elem_count)
 {
+    if (!v->size) {
+        ecs_vec_init(allocator, v, size, elem_count);
+        v->count = elem_count;
+        return;
+    }
+
     ecs_dbg_assert(size == v->elem_size, ECS_INVALID_PARAMETER, NULL);
     if (v->count != elem_count) {
         if (v->size < elem_count) {
             ecs_vec_set_size(allocator, v, size, elem_count);
         }
-
         v->count = elem_count;
+    }
+}
+
+void ecs_vec_set_count_zeromem(
+    ecs_allocator_t *allocator,
+    ecs_vec_t *v,
+    ecs_size_t size,
+    int32_t elem_count)
+{
+    int32_t count = v->count;
+    if (elem_count > count) {
+        ecs_vec_set_count(allocator, v, size, elem_count);
+        ecs_os_memset(ECS_ELEM(v->array, size, count), 0, 
+            (elem_count - count) * size);
     }
 }
 

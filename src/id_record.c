@@ -276,8 +276,6 @@ void flecs_id_record_free(
                 flecs_remove_id_elem(idr, ecs_pair(rel, EcsWildcard));
                 flecs_remove_id_elem(idr, ecs_pair(EcsWildcard, tgt));
             }
-
-            flecs_trav_entity_clear(world, rel, tgt);
         } else {
             ecs_log_push_2();
 
@@ -291,6 +289,9 @@ void flecs_id_record_free(
                     next = cur->second.next;
                     flecs_id_record_release(world, cur);
                 }
+
+                /* Clear target from traversal cache */
+                flecs_trav_entity_clear(world, ecs_pair_second(world, id));
             } else {
                 /* Iterate (Relationship, *) list */
                 ecs_assert(ECS_PAIR_SECOND(id) == EcsWildcard, 

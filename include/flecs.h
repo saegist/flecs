@@ -709,7 +709,7 @@ typedef struct ecs_bulk_desc_t {
 typedef struct ecs_component_desc_t {
     int32_t _canary;
     
-    /* Existing entity to associate with observer (optional) */
+    /* Existing entity to associate with component (optional) */
     ecs_entity_t entity;
 
     ecs_type_info_t type;      /* Parameters for type (size, hooks, ...) */

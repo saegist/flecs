@@ -648,16 +648,14 @@ void flecs_table_records_unregister(
             ECS_INTERNAL_ERROR, NULL);
         (void)id;
 
-        if (idr->flags & EcsIdAcyclic) {
-            flecs_trav_table_clear(world, ECS_PAIR_FIRST(id), table);
-        }
-
         ecs_table_cache_remove(&idr->cache, table, &tr->hdr);
         idr->generation ++;
         flecs_id_record_release(world, idr);
     }
 
     flecs_wfree_n(world, ecs_table_record_t, count, table->records);
+
+    flecs_trav_table_clear(world, table);
 }
 
 static
