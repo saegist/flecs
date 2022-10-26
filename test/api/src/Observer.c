@@ -3803,3 +3803,41 @@ void Observer_cache_test_9() {
 
     ecs_fini(world);
 }
+
+void Observer_cache_test_10() {
+    ecs_world_t *world = ecs_mini();
+
+    ECS_ENTITY(world, R, Acyclic);
+    ECS_TAG(world, Tag);
+
+    ecs_entity_t e1 = ecs_new(world, Tag);
+    ecs_entity_t e2 = ecs_new(world, Tag);
+    ecs_entity_t e3 = ecs_new(world, Tag);
+    ecs_entity_t e4 = ecs_new(world, Tag);
+
+    ecs_add_pair(world, e1, R, e4);
+    ecs_add_pair(world, e2, R, e3);
+    ecs_add_pair(world, e3, R, e1);
+
+    ecs_query(world, {
+        .filter.terms = {
+            { Tag },
+            { Tag, .src = {
+                .trav = R,
+                .flags = EcsUp
+            }}
+        }
+    });
+
+    ecs_delete(world, R);
+
+    test_assert(!ecs_has_pair(world, e1, R, e4));
+    test_assert(!ecs_has_pair(world, e2, R, e3));
+    test_assert(!ecs_has_pair(world, e3, R, e1));
+
+    test_assert(ecs_has(world, e1, Tag));
+    test_assert(ecs_has(world, e2, Tag));
+    test_assert(ecs_has(world, e3, Tag));
+
+    ecs_fini(world);
+}

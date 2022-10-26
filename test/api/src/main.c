@@ -1044,12 +1044,15 @@ void Filter_filter_iter_superset_only_w_owned(void);
 void Filter_filter_iter_superset_after_add(void);
 void Filter_filter_iter_superset_after_remove(void);
 void Filter_filter_iter_superset_after_clear(void);
+void Filter_filter_iter_superset_after_clear_parent(void);
 void Filter_filter_iter_superset_after_delete(void);
 void Filter_filter_iter_2_terms_superset_2_rel_instances(void);
 void Filter_filter_iter_2_terms_superset_2_rel_instances_match_2nd(void);
 void Filter_filter_iter_superset_parent_w_isa(void);
 void Filter_filter_iter_superset_isa_after_remove_parent(void);
 void Filter_filter_iter_superset_isa_create_table_after_iter(void);
+void Filter_filter_iter_isa_redo_2_lvls(void);
+void Filter_filter_iter_childof_redo_from_isa(void);
 void Filter_filter_w_10_terms(void);
 void Filter_filter_w_10_terms_move(void);
 void Filter_filter_w_10_terms_copy(void);
@@ -1704,6 +1707,7 @@ void Observer_cache_test_6(void);
 void Observer_cache_test_7(void);
 void Observer_cache_test_8(void);
 void Observer_cache_test_9(void);
+void Observer_cache_test_10(void);
 
 // Testsuite 'ObserverOnSet'
 void ObserverOnSet_set_1_of_1(void);
@@ -6242,6 +6246,10 @@ bake_test_case Filter_testcases[] = {
         Filter_filter_iter_superset_after_clear
     },
     {
+        "filter_iter_superset_after_clear_parent",
+        Filter_filter_iter_superset_after_clear_parent
+    },
+    {
         "filter_iter_superset_after_delete",
         Filter_filter_iter_superset_after_delete
     },
@@ -6264,6 +6272,14 @@ bake_test_case Filter_testcases[] = {
     {
         "filter_iter_superset_isa_create_table_after_iter",
         Filter_filter_iter_superset_isa_create_table_after_iter
+    },
+    {
+        "filter_iter_isa_redo_2_lvls",
+        Filter_filter_iter_isa_redo_2_lvls
+    },
+    {
+        "filter_iter_childof_redo_from_isa",
+        Filter_filter_iter_childof_redo_from_isa
     },
     {
         "filter_w_10_terms",
@@ -8850,6 +8866,10 @@ bake_test_case Observer_testcases[] = {
     {
         "cache_test_9",
         Observer_cache_test_9
+    },
+    {
+        "cache_test_10",
+        Observer_cache_test_10
     }
 };
 
@@ -11145,7 +11165,7 @@ static bake_test_suite suites[] = {
         "Filter",
         NULL,
         NULL,
-        245,
+        248,
         Filter_testcases
     },
     {
@@ -11187,7 +11207,7 @@ static bake_test_suite suites[] = {
         "Observer",
         NULL,
         NULL,
-        85,
+        86,
         Observer_testcases
     },
     {

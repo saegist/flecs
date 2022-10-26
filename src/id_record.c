@@ -114,11 +114,81 @@ ecs_id_t flecs_id_record_hash(
     return id;
 }
 
+typedef struct ecs_id_validate_result_t {
+    ecs_entity_t rel;
+    ecs_entity_t tgt;
+    char *error_msg;
+} ecs_id_validate_result_t;
+
 static
-ecs_id_record_t* flecs_id_record_new(
+ecs_id_validate_result_t flecs_id_validate(
     ecs_world_t *world,
     ecs_id_t id)
 {
+    ecs_id_validate_result_t result = {0};
+
+    if (ECS_HAS_ID_FLAG(id, PAIR)) {
+        result.rel = ecs_pair_first(world, id);
+        ecs_assert(result.rel != 0, ECS_INTERNAL_ERROR, NULL);
+
+        /* Relationship object can be 0, as tables without a ChildOf 
+         * relationship are added to the (ChildOf, 0) id record */
+        result.tgt = ECS_PAIR_SECOND(id);
+        if (result.tgt) {
+            result.tgt = ecs_get_alive(world, result.tgt);
+            if (!result.tgt) {
+                result.error_msg = "target of pair id is not alive";
+                goto error;
+            }
+        }
+
+        /* Check constraints */
+        if (result.tgt && !ecs_id_is_wildcard(result.tgt)) {
+            /* Check if target of relationship satisfies OneOf property */
+            ecs_entity_t oneof = flecs_get_oneof(world, result.rel);
+            if(oneof && !ecs_has_pair(world, result.tgt, EcsChildOf, oneof)) {
+                result.error_msg = "id does not satisfy OneOf constraint";
+                goto error;
+            }
+
+            /* Check if we're not trying to inherit from a final target */
+            if (result.rel == EcsIsA) {
+                bool is_final = ecs_has_id(world, result.tgt, EcsFinal);
+                if (is_final) {
+                    result.error_msg = "cannot inherit from final entity";
+                    goto error;
+
+                }
+            }
+        }
+    } else {
+        result.rel = id & ECS_COMPONENT_MASK;
+        result.rel = ecs_get_alive(world, result.rel);
+        if (!result.rel) {
+            result.error_msg = "id is not alive";
+            goto error;
+        }
+    }
+
+error:
+    return result;
+}
+
+static
+ecs_id_record_t* flecs_id_record_new(
+    ecs_world_t *world,
+    ecs_id_t id,
+    bool try)
+{
+    ecs_id_validate_result_t check = flecs_id_validate(world, id);
+    if (check.error_msg) {
+        if (!try) {
+            ecs_throw(ECS_CONSTRAINT_VIOLATED, check.error_msg);
+        }
+        return NULL;
+    }
+
+    ecs_entity_t rel = check.rel, tgt = check.tgt, role = id & ECS_ID_FLAGS_MASK;
     ecs_id_record_t *idr, **idr_ptr, *idr_t = NULL;
     ecs_id_t hash = flecs_id_record_hash(id);
     if (hash >= ECS_HI_ID_RECORD_ID) {
@@ -138,38 +208,10 @@ ecs_id_record_t* flecs_id_record_new(
     idr->refcount = 1;
     idr->reachable.current = -1;
 
+    flecs_trav_init(&idr->trav);
+
     bool is_wildcard = ecs_id_is_wildcard(id);
-
-    ecs_entity_t rel = 0, tgt = 0, role = id & ECS_ID_FLAGS_MASK;
     if (ECS_HAS_ID_FLAG(id, PAIR)) {
-        rel = ecs_pair_first(world, id);
-        ecs_assert(rel != 0, ECS_INTERNAL_ERROR, NULL);
-
-        /* Relationship object can be 0, as tables without a ChildOf 
-         * relationship are added to the (ChildOf, 0) id record */
-        tgt = ECS_PAIR_SECOND(id);
-        if (tgt) {
-            tgt = ecs_get_alive(world, tgt);
-            ecs_assert(tgt != 0, ECS_INTERNAL_ERROR, NULL);
-        }
-
-        /* Check constraints */
-        if (tgt && !ecs_id_is_wildcard(tgt)) {
-            /* Check if target of relationship satisfies OneOf property */
-            ecs_entity_t oneof = flecs_get_oneof(world, rel);
-            ecs_check( !oneof || ecs_has_pair(world, tgt, EcsChildOf, oneof),
-                ECS_CONSTRAINT_VIOLATED, NULL);
-            (void)oneof;
-
-            /* Check if we're not trying to inherit from a final target */
-            if (rel == EcsIsA) {
-                bool is_final = ecs_has_id(world, tgt, EcsFinal);
-                ecs_check(!is_final, ECS_CONSTRAINT_VIOLATED, 
-                    "cannot inherit from final entity");
-                (void)is_final;
-            }
-        }
-
         if (!is_wildcard && ECS_IS_PAIR(id) && (rel != EcsFlag)) {
             /* Inherit flags from (relationship, *) record */
             ecs_id_record_t *idr_r = flecs_id_record_ensure(
@@ -189,10 +231,6 @@ ecs_id_record_t* flecs_id_record_new(
                 idr->flags |= EcsIdUnion;
             }
         }
-    } else {
-        rel = id & ECS_COMPONENT_MASK;
-        rel = ecs_get_alive(world, rel);
-        ecs_assert(rel != 0, ECS_INTERNAL_ERROR, NULL);
     }
 
     /* Initialize type info if id is not a tag */
@@ -353,6 +391,7 @@ void flecs_id_record_free(
     ecs_table_cache_fini(&idr->cache);
     flecs_name_index_free(idr->name_index);
     ecs_vec_fini_t(&world->allocator, &idr->reachable.ids, ecs_reachable_elem_t);
+    flecs_trav_fini(world, &idr->trav);
 
     ecs_id_t hash = flecs_id_record_hash(id);
     if (hash >= ECS_HI_ID_RECORD_ID) {
@@ -375,7 +414,18 @@ ecs_id_record_t* flecs_id_record_ensure(
 {
     ecs_id_record_t *idr = flecs_id_record_get(world, id);
     if (!idr) {
-        idr = flecs_id_record_new(world, id);
+        idr = flecs_id_record_new(world, id, false);
+    }
+    return idr;
+}
+
+ecs_id_record_t* flecs_id_record_try(
+    ecs_world_t *world,
+    ecs_id_t id)
+{
+    ecs_id_record_t *idr = flecs_id_record_get(world, id);
+    if (!idr) {
+        idr = flecs_id_record_new(world, id, true);
     }
     return idr;
 }

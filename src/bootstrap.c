@@ -274,12 +274,12 @@ void flecs_register_on_delete_object(ecs_iter_t *it) {
 static
 void flecs_register_acyclic(ecs_iter_t *it) {
     flecs_register_id_flag_for_relation(it, EcsAcyclic, EcsIdAcyclic, 
-        EcsIdAcyclic, 0);
+        0, 0);
 }
 
 static
 void flecs_register_tag(ecs_iter_t *it) {
-    flecs_register_id_flag_for_relation(it, EcsTag, EcsIdTag, ~EcsIdTag, 0);
+    flecs_register_id_flag_for_relation(it, EcsTag, EcsIdTag, EcsIdTag, 0);
 
     /* Ensure that all id records for tag have type info set to NULL */
     ecs_world_t *world = it->real_world;
@@ -651,6 +651,7 @@ void flecs_bootstrap(
     ecs_ensure(world, EcsChildOf);
     ecs_ensure(world, EcsFlecs);
     ecs_ensure(world, EcsFlecsCore);
+    ecs_ensure(world, EcsFlecsInternals);
     ecs_ensure(world, EcsOnDelete);
     ecs_ensure(world, EcsPanic);
     ecs_ensure(world, EcsFlag);

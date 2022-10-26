@@ -45,8 +45,11 @@ struct ecs_id_record_t {
     /* Refcount */
     int32_t refcount;
 
-    /* Cache invalidation counter */
+    /* Reachable id cache */
     ecs_reachable_cache_t reachable;
+
+    /* Trav cache */
+    ecs_trav_cache_t trav;
 
     /* Name lookup index (currently only used for ChildOf pairs) */
     ecs_hashmap_t *name_index;
@@ -79,8 +82,13 @@ ecs_id_record_t* flecs_query_id_record_get(
     const ecs_world_t *world,
     ecs_id_t id);
 
-/* Ensure id record for id */
+/* Ensure id record, panic if constraints are not met. */
 ecs_id_record_t* flecs_id_record_ensure(
+    ecs_world_t *world,
+    ecs_id_t id);
+
+/* Try to get id record, returns NULL if constraints are not met. */
+ecs_id_record_t* flecs_id_record_try(
     ecs_world_t *world,
     ecs_id_t id);
 

@@ -1101,12 +1101,15 @@
                 "filter_iter_superset_after_add",
                 "filter_iter_superset_after_remove",
                 "filter_iter_superset_after_clear",
+                "filter_iter_superset_after_clear_parent",
                 "filter_iter_superset_after_delete",
                 "filter_iter_2_terms_superset_2_rel_instances",
                 "filter_iter_2_terms_superset_2_rel_instances_match_2nd",
                 "filter_iter_superset_parent_w_isa",
                 "filter_iter_superset_isa_after_remove_parent",
                 "filter_iter_superset_isa_create_table_after_iter",
+                "filter_iter_isa_redo_2_lvls",
+                "filter_iter_childof_redo_from_isa",
                 "filter_w_10_terms",
                 "filter_w_10_terms_move",
                 "filter_w_10_terms_copy",
@@ -1772,7 +1775,8 @@
                 "cache_test_6",
                 "cache_test_7",
                 "cache_test_8",
-                "cache_test_9"
+                "cache_test_9",
+                "cache_test_10"
             ]                
         }, {
             "id": "ObserverOnSet",

@@ -329,9 +329,6 @@ void flecs_table_init_flags(
         } else {
             if (ECS_IS_PAIR(id)) {
                 ecs_entity_t r = ECS_PAIR_FIRST(id);
-
-                table->flags |= EcsTableHasPairs;
-
                 if (r == EcsIsA) {
                     table->flags |= EcsTableHasIsA;
                 } else if (r == EcsChildOf) {
@@ -428,6 +425,7 @@ void flecs_table_init(
     int32_t last_id = -1; /* Track last regular (non-pair) id */
     int32_t first_pair = -1; /* Track the first pair in the table */
     int32_t first_role = -1; /* Track first id with role */
+    int32_t acyclic_count = 0;
 
     /* Scan to find boundaries of regular ids, pairs and roles */
     for (dst_i = 0; dst_i < dst_count; dst_i ++) {
@@ -459,6 +457,9 @@ void flecs_table_init(
             tr->hdr.cache = (ecs_table_cache_t*)idr;
             tr->column = dst_i;
             tr->count = 1;
+            if (idr->flags & EcsIdAcyclic) {
+                acyclic_count ++;
+            }
         }
 
         dst_i += dst_id <= src_id;
@@ -474,6 +475,9 @@ void flecs_table_init(
         ecs_assert(tr->hdr.cache != NULL, ECS_INTERNAL_ERROR, NULL);
         tr->column = dst_i;
         tr->count = 1;
+        if (idr->flags & EcsIdAcyclic) {
+            acyclic_count ++;
+        }
     }
 
     /* We're going to insert records from the vector into the index that
@@ -594,12 +598,15 @@ void flecs_table_init(
         dst_record_count, ecs_vector_first(records, ecs_table_record_t));
     table->record_count = flecs_ito(uint16_t, dst_record_count);
     table->records = dst_tr;
+    table->acyclic = flecs_walloc_n(world, int32_t, acyclic_count);
+    table->acyclic_count = 0;
 
     /* Register & patch up records */
     for (i = 0; i < dst_record_count; i ++) {
         tr = &dst_tr[i];
         idr = (ecs_id_record_t*)dst_tr[i].hdr.cache;
         ecs_assert(idr != NULL, ECS_INTERNAL_ERROR, NULL);
+        ecs_id_t id = idr->id;
 
         if (ecs_table_cache_get(&idr->cache, table)) {
             /* If this is a target wildcard record it has already been 
@@ -617,7 +624,27 @@ void flecs_table_init(
 
         /* Initialize event flags */
         table->flags |= idr->flags & EcsIdEventMask;
+
+        /* Track whether table has acyclic relationships */
+        if (ECS_IS_PAIR(id)) {
+            if (idr->flags & EcsIdAcyclic) {
+                table->flags |= EcsTableHasAcyclic;
+
+                if (i < dst_count) {
+                    /* Only invalidate actual ids, not wildcards */
+                    flecs_trav_down_invalidate(world, idr);
+                }
+
+                if (i < dst_count) {
+                    ecs_assert(table->acyclic_count < acyclic_count, 
+                        ECS_INTERNAL_ERROR, NULL);
+                    table->acyclic[table->acyclic_count ++] = i;
+                }
+            }
+        }
     }
+
+    table->acyclic_count = acyclic_count;
 
     world->store.records = records;
 
@@ -631,22 +658,30 @@ void flecs_table_records_unregister(
     ecs_table_t *table)
 {
     int32_t i, count = table->record_count;
+    int32_t type_count = table->type.count;
     for (i = 0; i < count; i ++) {
         ecs_table_record_t *tr = &table->records[i];
         ecs_table_cache_t *cache = tr->hdr.cache;
-        ecs_id_t id = ((ecs_id_record_t*)cache)->id;
+        ecs_id_record_t *idr = (ecs_id_record_t*)cache;
+        ecs_id_t id = idr->id;
 
         ecs_assert(tr->hdr.cache == cache, ECS_INTERNAL_ERROR, NULL);
         ecs_assert(tr->hdr.table == table, ECS_INTERNAL_ERROR, NULL);
-        ecs_assert(flecs_id_record_get(world, id) == (ecs_id_record_t*)cache,
+        ecs_assert(flecs_id_record_get(world, id) == idr,
             ECS_INTERNAL_ERROR, NULL);
         (void)id;
 
+        if (i < type_count) {
+            if (idr->flags & EcsIdAcyclic) {
+                flecs_trav_down_invalidate(world, idr);
+            }
+        }
         ecs_table_cache_remove(cache, table, &tr->hdr);
-        flecs_id_record_release(world, (ecs_id_record_t*)cache);
+        flecs_id_record_release(world, idr);
     }
 
     flecs_wfree_n(world, ecs_table_record_t, count, table->records);
+    flecs_wfree_n(world, int32_t, table->acyclic_count, table->acyclic);
 }
 
 static
@@ -1561,8 +1596,8 @@ int32_t flecs_table_append(
 
         ecs_iter_action_t on_add_hook;
         if (on_add && (on_add_hook = ti->hooks.on_add)) {
-            flecs_on_component_callback(world, table, on_add_hook, EcsOnAdd, column,
-                &entities[count], table->storage_ids[i], count, 1, ti);
+            flecs_on_component_callback(world, table, on_add_hook, EcsOnAdd, 
+                column, &entities[count], table->storage_ids[i], count, 1, ti);
         }
 
         ecs_assert(columns[i].size == 

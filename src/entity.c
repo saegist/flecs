@@ -306,8 +306,8 @@ void flecs_instantiate_children(
                  * instances don't all end up with the Union property. */
                 continue;
             }
-            ecs_table_record_t *tr = &child_table->records[i];
-            ecs_id_record_t *idr = (ecs_id_record_t*)tr->hdr.cache;
+
+            ecs_id_record_t *idr = flecs_table_get_id_record(child_table, i);
             if (idr->flags & EcsIdDontInherit) {
                 continue;
             }
@@ -1911,6 +1911,8 @@ void ecs_clear(
 
     ecs_table_t *table = r->table;
     if (table) {
+        flecs_journal_begin(world, EcsJournalClear, entity, NULL, NULL);
+
         ecs_table_diff_t diff = {
             .removed = table->type
         };
@@ -1921,6 +1923,8 @@ void ecs_clear(
         if (r->row & EcsEntityObservedAcyclic) {
             flecs_table_observer_add(table, -1);
         }
+
+        flecs_journal_end();
     }    
 
     flecs_defer_end(world, stage);
@@ -2034,8 +2038,7 @@ ecs_entity_t flecs_get_delete_action(
     if (!result && delete_target) {
         /* If action is not specified and we're deleting a relationship target,
          * derive the action from the current record */
-        ecs_table_record_t *trr = &table->records[tr->column];
-        ecs_id_record_t *idrr = (ecs_id_record_t*)trr->hdr.cache;
+        ecs_id_record_t *idrr = flecs_table_get_id_record(table, tr->column);
         result = ECS_ID_ON_DELETE_OBJECT(idrr->flags);
     }
     return result;

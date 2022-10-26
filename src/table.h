@@ -236,4 +236,7 @@ void flecs_table_diff_build_noalloc(
     ecs_table_diff_builder_t *builder,
     ecs_table_diff_t *diff);
 
+#define flecs_table_get_id_record(table, column)\
+    ((ecs_id_record_t*)table->records[column].hdr.cache)
+
 #endif

@@ -294,11 +294,11 @@ extern "C" {
 
 #define EcsTableHasBuiltins            (1u << 1u)  /* Does table have builtin components */
 #define EcsTableIsPrefab               (1u << 2u)  /* Does the table store prefabs */
-#define EcsTableHasIsA                 (1u << 3u)  /* Does the table have IsA relationship */
-#define EcsTableHasChildOf             (1u << 4u)  /* Does the table type ChildOf relationship */
-#define EcsTableHasPairs               (1u << 5u)  /* Does the table type have pairs */
-#define EcsTableHasModule              (1u << 6u)  /* Does the table have module data */
-#define EcsTableIsDisabled             (1u << 7u)  /* Does the table type has EcsDisabled */
+#define EcsTableIsDisabled             (1u << 3u)  /* Does the table type has EcsDisabled */
+#define EcsTableHasIsA                 (1u << 4u)  /* Does the table have IsA pairs */
+#define EcsTableHasChildOf             (1u << 5u)  /* Does the table type ChildOf pairs */
+#define EcsTableHasAcyclic             (1u << 6u)  /* Does the table type have acyclic pairs */
+#define EcsTableHasModule              (1u << 7u)  /* Does the table have module data */
 #define EcsTableHasCtors               (1u << 8u)
 #define EcsTableHasDtors               (1u << 9u)
 #define EcsTableHasCopy                (1u << 10u)
@@ -3305,20 +3305,21 @@ typedef struct ecs_table_cache_iter_t {
 /** Term-iterator specific data */
 typedef struct ecs_term_iter_t {
     ecs_term_t term;
-    ecs_id_record_t *self_index;
-    ecs_id_record_t *set_index;
+    ecs_id_record_t *idr;
+    const struct ecs_trav_down_t *trav;
+    int32_t trav_row; /* Row of entity currently being traversed downwards */
 
-    ecs_id_record_t *cur;
     ecs_table_cache_iter_t it;
+    const struct ecs_table_record_t *tr;
     int32_t index;
-    int32_t observed_table_count;
+    int32_t trav_index;
+    bool trav_done;
+    bool match_empty;
     
     ecs_table_t *table;
     int32_t cur_match;
     int32_t match_count;
     int32_t last_column;
-
-    bool empty_tables;
 
     /* Storage */
     ecs_id_t id;

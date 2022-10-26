@@ -178,6 +178,9 @@ struct ecs_table_t {
                                       *  - count(T)..count(S):  data_type -> type
                                       */
 
+    int32_t *acyclic;                /* Indices to acyclic pairs in table type */
+    int32_t acyclic_count;           /* Number of acyclic relationship pairs */
+
     ecs_graph_node_t node;           /* Graph node */
     ecs_data_t data;                 /* Component storage */
     ecs_type_info_t **type_info;     /* Cached type info */

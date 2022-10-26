@@ -8,6 +8,7 @@
 
 #include "private_types.h"
 #include "table_cache.h"
+#include "trav_cache.h"
 #include "id_record.h"
 #include "observable.h"
 #include "iter.h"

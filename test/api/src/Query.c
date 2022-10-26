@@ -5583,24 +5583,6 @@ void Query_no_instancing_w_shared() {
     {
         Position *p = ecs_field(&it, Position, 1);
         Velocity *v = ecs_field(&it, Velocity, 2);
-        test_int(it.count, 2);
-        test_int(it.entities[0], e6);
-        test_int(p[0].x, 60);
-        test_int(p[0].y, 70);
-        test_int(v[0].x, 2);
-        test_int(v[0].y, 3);
-
-        test_int(it.entities[1], e7);
-        test_int(p[1].x, 70);
-        test_int(p[1].y, 80);
-        test_int(v[1].x, 4);
-        test_int(v[1].y, 5);
-    }
-
-    test_assert(ecs_query_next(&it));
-    {
-        Position *p = ecs_field(&it, Position, 1);
-        Velocity *v = ecs_field(&it, Velocity, 2);
         test_int(it.count, 1);
         test_int(it.entities[0], e1);
         test_int(p->x, 10);
@@ -5655,6 +5637,24 @@ void Query_no_instancing_w_shared() {
         test_int(p->y, 60);
         test_int(v->x, 1);
         test_int(v->y, 2);
+    }
+
+    test_assert(ecs_query_next(&it));
+    {
+        Position *p = ecs_field(&it, Position, 1);
+        Velocity *v = ecs_field(&it, Velocity, 2);
+        test_int(it.count, 2);
+        test_int(it.entities[0], e6);
+        test_int(p[0].x, 60);
+        test_int(p[0].y, 70);
+        test_int(v[0].x, 2);
+        test_int(v[0].y, 3);
+
+        test_int(it.entities[1], e7);
+        test_int(p[1].x, 70);
+        test_int(p[1].y, 80);
+        test_int(v[1].x, 4);
+        test_int(v[1].y, 5);
     }
 
     test_assert(!ecs_query_next(&it));
@@ -6151,29 +6151,36 @@ void Query_superset_2_relations() {
     ecs_query_t *q = ecs_query_new(world, "Position(up(R))");
 
     ecs_iter_t it = ecs_query_iter(world, q);
-    test_bool(true, ecs_query_next(&it));
-    test_int(it.count, 1);
-    test_uint(it.entities[0], e_3);
-    test_uint(it.sources[0], e_2);
-    Position *p = ecs_field(&it, Position, 1);
-    test_int(p[0].x, 50);
-    test_int(p[0].y, 60);
+    {
+        test_bool(true, ecs_query_next(&it));
+        test_int(it.count, 1);
+        test_uint(it.entities[0], e_1);
+        test_uint(it.sources[0], e_0);
+        Position *p = ecs_field(&it, Position, 1);
+        test_int(p[0].x, 10);
+        test_int(p[0].y, 20);
+    }
 
-    test_bool(true, ecs_query_next(&it));
-    test_int(it.count, 1);
-    test_uint(it.entities[0], e_2);
-    test_uint(it.sources[0], e_1);
-    p = ecs_field(&it, Position, 1);
-    test_int(p[0].x, 30);
-    test_int(p[0].y, 40);
+    {
+        test_bool(true, ecs_query_next(&it));
+        test_int(it.count, 1);
+        test_uint(it.entities[0], e_3);
+        test_uint(it.sources[0], e_2);
+        Position *p = ecs_field(&it, Position, 1);
+        test_int(p[0].x, 50);
+        test_int(p[0].y, 60);
+    }
 
-    test_bool(true, ecs_query_next(&it));
-    test_int(it.count, 1);
-    test_uint(it.entities[0], e_1);
-    test_uint(it.sources[0], e_0);
-    p = ecs_field(&it, Position, 1);
-    test_int(p[0].x, 10);
-    test_int(p[0].y, 20);
+    {
+        test_bool(true, ecs_query_next(&it));
+        test_int(it.count, 1);
+        test_uint(it.entities[0], e_2);
+        test_uint(it.sources[0], e_1);
+        Position *p = ecs_field(&it, Position, 1);
+        test_int(p[0].x, 30);
+        test_int(p[0].y, 40);
+    }
+
     test_bool(false, ecs_query_next(&it));
 
     ecs_fini(world);
